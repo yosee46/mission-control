@@ -1,0 +1,611 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <title>Mission Control</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          colors: {
+            'mc-bg': '#0a0a0a',
+            'mc-card': '#1a1a1a',
+            'mc-hover': '#2a2a2a',
+            'mc-border': '#2a2a2a',
+            'mc-blue': '#3b82f6',
+            'mc-green': '#10b981',
+            'mc-yellow': '#f59e0b',
+            'mc-red': '#ef4444',
+          }
+        }
+      }
+    }
+  </script>
+  <style>
+    * { -webkit-tap-highlight-color: transparent; }
+    body { overscroll-behavior-y: contain; }
+
+    .task-card {
+      min-height: 56px;
+      transition: background-color 150ms ease, transform 100ms ease;
+    }
+    .task-card:active {
+      background-color: #2a2a2a;
+      transform: scale(0.98);
+    }
+
+    .priority-2::after { content: ' !!!'; color: #ef4444; font-weight: bold; }
+    .priority-1::after { content: ' !'; color: #f59e0b; }
+
+    .agent-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      display: inline-block;
+    }
+    .agent-dot.active { background-color: #10b981; }
+    .agent-dot.idle { background-color: #f59e0b; }
+    .agent-dot.offline { background-color: #6b7280; }
+
+    .btn-action {
+      min-height: 48px;
+      min-width: 48px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .section-header { min-height: 44px; }
+
+    .sheet-hidden { transform: translateY(100%); }
+    .sheet-visible { transform: translateY(0); }
+
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .animate-spin { animation: spin 1s linear infinite; }
+
+    @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
+    .animate-pulse { animation: pulse 2s ease-in-out infinite; }
+
+    .skeleton {
+      background: linear-gradient(90deg, #1a1a1a 25%, #2a2a2a 50%, #1a1a1a 75%);
+      background-size: 200% 100%;
+      animation: shimmer 1.5s infinite;
+    }
+    @keyframes shimmer { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
+  </style>
+</head>
+<body class="bg-mc-bg text-white min-h-screen">
+
+  <!-- Header -->
+  <header class="sticky top-0 bg-mc-bg/95 backdrop-blur border-b border-mc-border p-4 z-10">
+    <div class="flex justify-between items-center">
+      <div>
+        <h1 class="text-lg font-bold flex items-center gap-2">
+          <span>⚡</span> Mission Control
+        </h1>
+        <p id="header-stats" class="text-sm text-gray-400">Loading...</p>
+      </div>
+      <button onclick="fetchBoard()" class="p-3 -m-1 rounded-lg hover:bg-mc-hover active:bg-mc-hover">
+        <span id="refresh-icon" class="text-xl">↻</span>
+      </button>
+    </div>
+    <div id="stale-banner" class="hidden mt-2 py-2 px-3 bg-mc-yellow/10 rounded-lg text-xs text-mc-yellow">
+      ⚠️ Offline — showing cached data from <span id="stale-time"></span>
+    </div>
+    <div id="connection-status" class="hidden mt-2 py-1 px-3 bg-mc-green/10 rounded text-xs text-mc-green">
+      🟢 Live
+    </div>
+  </header>
+
+  <!-- Board -->
+  <main id="board" class="p-4 pb-24">
+    <!-- Skeleton loading -->
+    <div id="skeleton" class="space-y-4">
+      <div class="skeleton h-8 w-32 rounded"></div>
+      <div class="skeleton h-16 rounded-lg"></div>
+      <div class="skeleton h-16 rounded-lg"></div>
+      <div class="skeleton h-8 w-40 rounded mt-6"></div>
+      <div class="skeleton h-16 rounded-lg"></div>
+    </div>
+  </main>
+
+  <!-- Bottom Sheet Backdrop -->
+  <div id="sheet-backdrop" class="fixed inset-0 bg-black/60 z-20 hidden transition-opacity" onclick="closeDetail()"></div>
+
+  <!-- Bottom Sheet -->
+  <div id="sheet" class="fixed bottom-0 left-0 right-0 bg-mc-card rounded-t-2xl z-30 sheet-hidden transition-transform duration-300 ease-out max-h-[85vh] overflow-hidden flex flex-col">
+    <!-- Drag handle -->
+    <div class="flex justify-center py-3 cursor-grab" onclick="closeDetail()">
+      <div class="w-10 h-1 bg-gray-600 rounded-full"></div>
+    </div>
+
+    <!-- Content -->
+    <div id="sheet-content" class="px-4 pb-8 overflow-y-auto flex-1">
+      <!-- Task detail rendered by JS -->
+    </div>
+  </div>
+
+  <!-- Loading overlay (initial) -->
+  <div id="loading" class="fixed inset-0 bg-mc-bg flex items-center justify-center z-50">
+    <div class="text-center">
+      <div class="text-5xl mb-4 animate-pulse">⚡</div>
+      <p class="text-gray-400">Loading Mission Control...</p>
+    </div>
+  </div>
+
+  <!-- Error overlay -->
+  <div id="error-overlay" class="fixed inset-0 bg-mc-bg flex items-center justify-center z-50 hidden">
+    <div class="text-center p-8">
+      <div class="text-5xl mb-4">🔒</div>
+      <p id="error-message" class="text-mc-red mb-4">Error</p>
+      <p class="text-gray-400 text-sm">Check the server console for the access URL</p>
+    </div>
+  </div>
+
+  <script>
+// ═══════════════════════════════════════════
+// STATE
+// ═══════════════════════════════════════════
+const state = {
+  tasks: [],
+  agents: [],
+  selectedTask: null,
+  token: new URLSearchParams(location.search).get('token'),
+  sseRetries: 0,
+  eventSource: null
+};
+
+// ═══════════════════════════════════════════
+// API
+// ═══════════════════════════════════════════
+const api = {
+  async get(endpoint) {
+    const res = await fetch(`${endpoint}?token=${state.token}`);
+    if (res.status === 401) throw new Error('Unauthorized');
+    if (!res.ok) throw new Error(`API error: ${res.status}`);
+    return res.json();
+  },
+  async post(endpoint, body = {}) {
+    const res = await fetch(`${endpoint}?token=${state.token}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body)
+    });
+    if (res.status === 401) throw new Error('Unauthorized');
+    if (!res.ok) throw new Error(`API error: ${res.status}`);
+    return res.json();
+  }
+};
+
+// ═══════════════════════════════════════════
+// BOARD
+// ═══════════════════════════════════════════
+async function fetchBoard() {
+  const icon = document.getElementById('refresh-icon');
+  icon.classList.add('animate-spin');
+
+  try {
+    const data = await api.get('/api/board');
+    state.tasks = data.tasks;
+    state.agents = data.agents;
+    renderBoard();
+    saveCache(data);
+    hideStaleIndicator();
+    document.getElementById('skeleton').classList.add('hidden');
+  } catch (e) {
+    console.error('Fetch error:', e);
+    if (e.message === 'Unauthorized') {
+      showError('Invalid or missing token');
+      return;
+    }
+    // Try cache
+    const cache = loadCache();
+    if (cache) {
+      state.tasks = cache.data.tasks;
+      state.agents = cache.data.agents;
+      renderBoard();
+      showStaleIndicator(cache.timestamp);
+      document.getElementById('skeleton').classList.add('hidden');
+    } else {
+      showError('Cannot connect to server');
+    }
+  } finally {
+    icon.classList.remove('animate-spin');
+    document.getElementById('loading').classList.add('hidden');
+  }
+}
+
+function renderBoard() {
+  const board = document.getElementById('board');
+  const groups = {
+    pending: state.tasks.filter(t => t.status === 'pending' || t.status === 'claimed'),
+    in_progress: state.tasks.filter(t => t.status === 'in_progress'),
+    blocked: state.tasks.filter(t => t.status === 'blocked'),
+    done: state.tasks.filter(t => t.status === 'done')
+  };
+
+  const activeAgents = state.agents.filter(a => a.status === 'busy').length;
+  document.getElementById('header-stats').textContent =
+    `${state.agents.length} agents · ${activeAgents} active · ${state.tasks.length} tasks`;
+
+  board.innerHTML = `
+    <div id="skeleton" class="hidden"></div>
+    ${renderSection('pending', '○ Pending', groups.pending)}
+    ${renderSection('in_progress', '▶ In Progress', groups.in_progress)}
+    ${groups.blocked.length > 0 ? renderSection('blocked', '✗ Blocked', groups.blocked) : ''}
+    ${renderSection('done', '✓ Done', groups.done, groups.done.length > 3)}
+  `;
+}
+
+function renderSection(id, title, tasks, collapsed = false) {
+  const count = tasks.length;
+  const icon = id === 'pending' ? '○' : id === 'in_progress' ? '▶' : id === 'blocked' ? '✗' : '✓';
+  const color = id === 'done' ? 'text-mc-green' : id === 'blocked' ? 'text-mc-red' : id === 'in_progress' ? 'text-mc-blue' : 'text-gray-400';
+
+  return `
+    <section class="mb-6">
+      <h2 class="section-header flex items-center gap-2 ${color} font-medium mb-3 text-sm uppercase tracking-wide">
+        ${title} <span class="bg-mc-card px-2 py-0.5 rounded text-xs">${count}</span>
+      </h2>
+      <div class="space-y-3 ${collapsed ? 'hidden' : ''}" id="section-${id}">
+        ${tasks.map(renderCard).join('')}
+        ${count === 0 ? '<p class="text-gray-600 text-sm py-2">No tasks</p>' : ''}
+      </div>
+      ${collapsed ? `
+        <button onclick="document.getElementById('section-${id}').classList.toggle('hidden'); this.classList.toggle('hidden')"
+                class="text-sm text-gray-500 hover:text-gray-300">
+          Show ${count} completed tasks
+        </button>
+      ` : ''}
+    </section>
+  `;
+}
+
+function renderCard(task) {
+  const agent = state.agents.find(a => a.name === task.owner);
+  const agentStatus = agent ? getAgentStatus(agent) : 'offline';
+  const priorityClass = task.priority > 0 ? `priority-${task.priority}` : '';
+
+  return `
+    <div class="task-card bg-mc-card rounded-xl p-4 border border-mc-border cursor-pointer"
+         onclick="openDetail(${task.id})">
+      <div class="font-medium mb-1.5 ${priorityClass}">
+        <span class="text-gray-500">#${task.id}</span> ${escapeHtml(task.subject)}
+      </div>
+      <div class="text-sm text-gray-500 flex items-center gap-2 flex-wrap">
+        ${task.owner ? `
+          <span class="flex items-center gap-1.5">
+            <span class="agent-dot ${agentStatus}"></span>
+            <span>${escapeHtml(task.owner)}</span>
+          </span>
+          <span class="text-gray-600">·</span>
+        ` : '<span class="text-gray-600">unassigned</span><span class="text-gray-600">·</span>'}
+        <span>${timeAgo(task.updated_at || task.created_at)}</span>
+      </div>
+    </div>
+  `;
+}
+
+// ═══════════════════════════════════════════
+// DETAIL SHEET
+// ═══════════════════════════════════════════
+async function openDetail(taskId) {
+  state.selectedTask = taskId;
+
+  const sheet = document.getElementById('sheet');
+  const backdrop = document.getElementById('sheet-backdrop');
+  const content = document.getElementById('sheet-content');
+
+  // Show sheet with loading
+  content.innerHTML = `
+    <div class="space-y-3 animate-pulse">
+      <div class="skeleton h-8 w-3/4 rounded"></div>
+      <div class="skeleton h-4 w-1/2 rounded"></div>
+      <div class="skeleton h-20 rounded-lg mt-4"></div>
+    </div>
+  `;
+  backdrop.classList.remove('hidden');
+  requestAnimationFrame(() => {
+    sheet.classList.remove('sheet-hidden');
+    sheet.classList.add('sheet-visible');
+  });
+
+  try {
+    const data = await api.get(`/api/task/${taskId}`);
+    content.innerHTML = renderDetail(data.task, data.messages);
+  } catch (e) {
+    content.innerHTML = `
+      <div class="text-center py-8">
+        <p class="text-mc-red mb-2">Failed to load task</p>
+        <button onclick="openDetail(${taskId})" class="text-mc-blue">Retry</button>
+      </div>
+    `;
+  }
+}
+
+function renderDetail(task, messages) {
+  const canClaim = !task.owner || task.status === 'pending';
+  const canComplete = task.status === 'in_progress' || task.status === 'claimed';
+  const statusColor = task.status === 'done' ? 'text-mc-green' :
+                      task.status === 'in_progress' ? 'text-mc-blue' :
+                      task.status === 'blocked' ? 'text-mc-red' : 'text-gray-400';
+
+  return `
+    <div class="space-y-4">
+      <div>
+        <p class="text-gray-500 text-sm mb-1">#${task.id}</p>
+        <h2 class="text-xl font-bold">${escapeHtml(task.subject)}</h2>
+      </div>
+
+      <div class="flex flex-wrap gap-3 text-sm">
+        <div class="bg-mc-bg rounded-lg px-3 py-2">
+          <span class="text-gray-500">Status</span>
+          <p class="${statusColor} font-medium">${task.status.replace('_', ' ')}</p>
+        </div>
+        <div class="bg-mc-bg rounded-lg px-3 py-2">
+          <span class="text-gray-500">Owner</span>
+          <p class="font-medium">${task.owner || 'Unassigned'}</p>
+        </div>
+        <div class="bg-mc-bg rounded-lg px-3 py-2">
+          <span class="text-gray-500">Created</span>
+          <p class="font-medium">${timeAgo(task.created_at)}</p>
+        </div>
+      </div>
+
+      ${task.description ? `
+        <div>
+          <h3 class="text-gray-500 text-sm mb-2">Description</h3>
+          <div class="bg-mc-bg rounded-lg p-4 text-sm whitespace-pre-wrap">${escapeHtml(task.description)}</div>
+        </div>
+      ` : ''}
+
+      ${messages.length > 0 ? `
+        <div>
+          <h3 class="text-gray-500 text-sm mb-2">Messages (${messages.length})</h3>
+          <div class="space-y-2">
+            ${messages.map(m => `
+              <div class="bg-mc-bg rounded-lg p-3 text-sm">
+                <div class="flex justify-between items-start mb-1">
+                  <span class="text-mc-blue font-medium">${escapeHtml(m.from_agent)}</span>
+                  <span class="text-gray-600 text-xs">${timeAgo(m.created_at)}</span>
+                </div>
+                <p class="text-gray-300">${escapeHtml(m.body)}</p>
+              </div>
+            `).join('')}
+          </div>
+        </div>
+      ` : ''}
+
+      <div class="flex gap-3 pt-4 sticky bottom-0 bg-mc-card pb-2">
+        ${canClaim ? `
+          <button onclick="claimTask(${task.id})"
+                  class="btn-action flex-1 bg-mc-blue hover:bg-mc-blue/80 active:bg-mc-blue/60 text-white rounded-xl font-medium transition-colors">
+            Claim Task
+          </button>
+        ` : ''}
+        ${canComplete ? `
+          <button onclick="completeTask(${task.id})"
+                  class="btn-action flex-1 bg-mc-green hover:bg-mc-green/80 active:bg-mc-green/60 text-white rounded-xl font-medium transition-colors">
+            Complete
+          </button>
+        ` : ''}
+        ${!canClaim && !canComplete && task.status === 'done' ? `
+          <div class="flex-1 text-center py-3 text-mc-green">✓ Completed</div>
+        ` : ''}
+        <button onclick="closeDetail()"
+                class="btn-action px-6 bg-mc-hover hover:bg-mc-border active:bg-mc-bg text-gray-300 rounded-xl transition-colors">
+          Close
+        </button>
+      </div>
+    </div>
+  `;
+}
+
+function closeDetail() {
+  const sheet = document.getElementById('sheet');
+  const backdrop = document.getElementById('sheet-backdrop');
+
+  sheet.classList.remove('sheet-visible');
+  sheet.classList.add('sheet-hidden');
+
+  setTimeout(() => {
+    backdrop.classList.add('hidden');
+  }, 300);
+
+  state.selectedTask = null;
+}
+
+// ═══════════════════════════════════════════
+// ACTIONS
+// ═══════════════════════════════════════════
+async function claimTask(taskId) {
+  // Optimistic update
+  const task = state.tasks.find(t => t.id === taskId);
+  if (task) {
+    task.owner = 'mobile';
+    task.status = 'in_progress';
+    renderBoard();
+  }
+
+  closeDetail();
+
+  try {
+    await api.post(`/api/task/${taskId}/claim`, { agent: 'mobile' });
+    await fetchBoard();
+  } catch (e) {
+    console.error('Claim failed:', e);
+    await fetchBoard(); // Rollback
+  }
+}
+
+async function completeTask(taskId) {
+  // Optimistic update
+  const task = state.tasks.find(t => t.id === taskId);
+  if (task) {
+    task.status = 'done';
+    renderBoard();
+  }
+
+  closeDetail();
+
+  try {
+    await api.post(`/api/task/${taskId}/complete`, {});
+    await fetchBoard();
+  } catch (e) {
+    console.error('Complete failed:', e);
+    await fetchBoard(); // Rollback
+  }
+}
+
+// ═══════════════════════════════════════════
+// REAL-TIME (SSE)
+// ═══════════════════════════════════════════
+function connectSSE() {
+  if (state.eventSource) {
+    state.eventSource.close();
+  }
+
+  const es = new EventSource(`/api/heartbeat?token=${state.token}`);
+  state.eventSource = es;
+
+  es.onopen = () => {
+    console.log('SSE: Connected');
+    state.sseRetries = 0;
+    showConnectionStatus(true);
+  };
+
+  es.onmessage = (e) => {
+    try {
+      const data = JSON.parse(e.data);
+      if (data.refresh) {
+        console.log('SSE: Refresh triggered');
+        fetchBoard();
+      }
+    } catch (err) {
+      console.error('SSE parse error:', err);
+    }
+  };
+
+  es.onerror = () => {
+    es.close();
+    showConnectionStatus(false);
+    state.sseRetries++;
+    const delay = Math.min(1000 * (2 ** state.sseRetries), 30000);
+    console.log(`SSE: Reconnecting in ${delay}ms (attempt ${state.sseRetries})`);
+    setTimeout(connectSSE, delay);
+  };
+}
+
+function showConnectionStatus(connected) {
+  const status = document.getElementById('connection-status');
+  if (connected) {
+    status.classList.remove('hidden');
+    status.innerHTML = '🟢 Live updates active';
+    setTimeout(() => status.classList.add('hidden'), 3000);
+  }
+}
+
+// Reconnect on visibility change
+document.addEventListener('visibilitychange', () => {
+  if (!document.hidden) {
+    console.log('Tab visible: Refreshing');
+    fetchBoard();
+    // Reconnect SSE if closed
+    if (!state.eventSource || state.eventSource.readyState === EventSource.CLOSED) {
+      connectSSE();
+    }
+  }
+});
+
+// ═══════════════════════════════════════════
+// CACHE
+// ═══════════════════════════════════════════
+function saveCache(data) {
+  try {
+    localStorage.setItem('mc_board', JSON.stringify({
+      data,
+      timestamp: Date.now()
+    }));
+  } catch (e) {
+    console.warn('Cache save failed:', e);
+  }
+}
+
+function loadCache() {
+  try {
+    const cached = localStorage.getItem('mc_board');
+    return cached ? JSON.parse(cached) : null;
+  } catch {
+    return null;
+  }
+}
+
+function showStaleIndicator(timestamp) {
+  const banner = document.getElementById('stale-banner');
+  const time = document.getElementById('stale-time');
+  time.textContent = timeAgo(new Date(timestamp).toISOString());
+  banner.classList.remove('hidden');
+}
+
+function hideStaleIndicator() {
+  document.getElementById('stale-banner').classList.add('hidden');
+}
+
+// ═══════════════════════════════════════════
+// UTILITIES
+// ═══════════════════════════════════════════
+function escapeHtml(text) {
+  if (!text) return '';
+  const div = document.createElement('div');
+  div.textContent = text;
+  return div.innerHTML;
+}
+
+function timeAgo(dateStr) {
+  if (!dateStr) return 'unknown';
+  const date = new Date(dateStr.replace(' ', 'T') + 'Z');
+  const seconds = Math.floor((Date.now() - date.getTime()) / 1000);
+
+  if (seconds < 0) return 'just now';
+  if (seconds < 60) return 'just now';
+  if (seconds < 3600) return `${Math.floor(seconds / 60)}m ago`;
+  if (seconds < 86400) return `${Math.floor(seconds / 3600)}h ago`;
+  return `${Math.floor(seconds / 86400)}d ago`;
+}
+
+function getAgentStatus(agent) {
+  if (!agent || !agent.last_seen) return 'offline';
+  const lastSeen = new Date(agent.last_seen.replace(' ', 'T') + 'Z');
+  const minutesAgo = (Date.now() - lastSeen.getTime()) / 60000;
+
+  if (minutesAgo > 15) return 'offline';
+  if (agent.status === 'busy') return 'active';
+  return 'idle';
+}
+
+function showError(message) {
+  document.getElementById('loading').classList.add('hidden');
+  document.getElementById('error-message').textContent = message;
+  document.getElementById('error-overlay').classList.remove('hidden');
+}
+
+// ═══════════════════════════════════════════
+// INIT
+// ═══════════════════════════════════════════
+document.addEventListener('DOMContentLoaded', () => {
+  if (!state.token) {
+    showError('Missing token in URL');
+    return;
+  }
+
+  fetchBoard();
+  connectSSE();
+});
+  </script>
+</body>
+</html>
