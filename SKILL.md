@@ -8,6 +8,16 @@ Run `mc init` to create the database. Set your identity: `export MC_AGENT=your-n
 
 For multiple projects, create separate workspaces: `mc workspace create my-project`
 
+### OMOS (Orchestrated Team Setup)
+
+For automated team creation, use the `setup_mission` tool:
+
+```bash
+setup_mission <project> <mission> "<goal>" --roles role1,role2,...
+```
+
+This creates: MC workspace + mission, openclaw agents with role-specific AGENTS.md, MC fleet registration, and cron jobs — all in one command.
+
 ## Operational Rhythm
 
 Every agent should follow this pattern:
@@ -25,6 +35,7 @@ Every agent should follow this pattern:
 |-----------|---------|
 | New idea/task | `mc add "Subject" -d "Details"` |
 | Want to work | `mc list --status pending` then `mc claim <id>` |
+| See all tasks | `mc list --all` |
 | Stuck/blocked | `mc msg <lead> "Blocked on X" --task <id> --type question` |
 | Finished | `mc done <id> -m "Result"` |
 | Need review | `mc msg <reviewer> "Ready" --task <id> --type handoff` |
@@ -32,6 +43,8 @@ Every agent should follow this pattern:
 | New project | `mc workspace create project-name` |
 | Separate workstream | `mc mission create "feature-x" -d "Feature X work"` |
 | Work in specific context | `mc -w project -m feature-x list` |
+| Build a team | `setup_mission project mission "goal" --roles researcher,coder,reviewer` |
+| Cleanup mission | `openclaw cron rm --name project-*` then archive mission |
 
 ## Task Statuses
 
@@ -50,7 +63,7 @@ mc [-w workspace] [-m mission] <command> [args]
 ### Tasks
 ```
 mc add "Subject" [-d "description"] [-p 0|1|2] [--for agent]
-mc list [--status STATUS] [--owner AGENT] [--mine]
+mc list [--status STATUS] [--owner AGENT] [--mine] [--all]
 mc claim <id>
 mc start <id>
 mc done <id> [-m "note"]

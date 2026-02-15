@@ -26,6 +26,7 @@ Running 3+ OpenClaw agents? You have the "who is doing what?" problem. Mission C
 - **Works offline.** Local SQLite, no cloud dependency.
 - **OpenClaw-native.** Install as a skill, works with existing agents.
 - **Multi-project.** Workspaces for physical DB isolation, missions for logical task separation.
+- **OMOS.** Automated team orchestration — one instruction spawns an entire agent team.
 
 ## Install
 
@@ -38,6 +39,21 @@ git clone https://github.com/alanxurox/mission-control.git
 chmod +x mission-control/mc
 export PATH="$PATH:$(pwd)/mission-control"
 ```
+
+### OMOS Setup (Orchestrated Teams)
+
+For the full orchestration system (architect agent + dynamic team composition):
+
+```bash
+cd mission-control
+bash install.sh
+```
+
+This installs:
+- `~/bin/mc` — Mission Control CLI
+- `~/bin/setup_mission` — Team composition tool
+- `~/.openclaw/mc-templates/` — Agent role templates
+- `mc-architect` — Lead architect agent (auto-registered)
 
 ## Quick Start
 
@@ -74,6 +90,64 @@ mc fleet
 mc feed --last 10
 ```
 
+## OMOS — Orchestrated Mission System
+
+One instruction, full autonomous team:
+
+```bash
+# Tell the architect what you want
+openclaw agent --agent mc-architect -m \
+  "Build a Django EC site prototype with auth, product list, and cart"
+```
+
+The architect will:
+1. Analyze the mission and decide on team composition
+2. Run `setup_mission` to create workspace, agents, and cron jobs
+3. Break the goal into tasks and assign to agents
+4. Each agent runs autonomously on cron, claiming and completing tasks
+
+```
+User → mc-architect → setup_mission
+                          ├── ec-site-researcher  (cron: */10)
+                          ├── ec-site-backend     (cron: */10)
+                          ├── ec-site-frontend    (cron: */10)
+                          └── ec-site-reviewer    (cron: */10)
+```
+
+### Manual Team Setup
+
+You can also create teams directly:
+
+```bash
+# Create workspace + mission + agents + cron jobs
+setup_mission ec-site prototype \
+  "Django EC site with auth, products, and cart" \
+  --roles researcher,backend,frontend,reviewer
+
+# Add tasks for the team
+mc -w ec-site -m prototype add "Tech stack research" -p 2 --for ec-site-researcher
+mc -w ec-site -m prototype add "Django scaffolding" -p 2 --for ec-site-backend
+mc -w ec-site -m prototype add "Top page UI" --for ec-site-frontend
+mc -w ec-site -m prototype add "Architecture review" --for ec-site-reviewer
+
+# Monitor
+mc -w ec-site -m prototype board
+mc -w ec-site fleet
+```
+
+### Mission Cleanup
+
+```bash
+# Stop cron jobs
+openclaw cron rm --name ec-site-*
+
+# Remove agents
+openclaw agents delete ec-site-*
+
+# Archive mission
+mc -w ec-site mission archive prototype
+```
+
 ## Workspaces & Missions
 
 Workspaces provide **physical DB isolation** — each workspace has its own SQLite file, so parallel projects never conflict. Missions provide **logical task isolation** within a workspace.
@@ -81,7 +155,16 @@ Workspaces provide **physical DB isolation** — each workspace has its own SQLi
 ```
 ~/.openclaw/
 ├── config.json
-└── workspaces/
+├── mc-templates/                        # Agent role templates
+│   ├── base.md
+│   ├── researcher.md
+│   ├── coder.md
+│   └── reviewer.md
+├── workspace-mc-architect/              # Architect agent
+│   └── AGENTS.md
+├── workspace-<project>-<role>/          # Dynamic agent workspaces
+│   └── AGENTS.md
+└── workspaces/                          # MC databases
     ├── default/mission-control.db
     ├── project-alpha/mission-control.db
     └── my-saas/mission-control.db
@@ -137,7 +220,7 @@ After completing work, run: mc done <id> -m "what I did"
 |---------|-------------|
 | `mc init` | Create database |
 | `mc add "Subject"` | Create task |
-| `mc list` | List tasks |
+| `mc list [--all]` | List tasks (--all includes done) |
 | `mc claim <id>` | Claim task |
 | `mc start <id>` | Begin work |
 | `mc done <id>` | Complete task |
@@ -170,6 +253,8 @@ After completing work, run: mc done <id> -m "what I did"
 │            ├── messages      │ ← Inter-agent comms (per mission)
 │            ├── agents        │ ← Fleet registry (shared)
 │            └── activity      │ ← Audit log (per mission)
+├──────────────────────────────┤
+│  OMOS (orchestration)        │ ← setup_mission + mc-architect
 ├──────────────────────────────┤
 │  Mobile UI (Flask + SSE)     │ ← Optional: mobile/mc-server.py
 └──────────────────────────────┘

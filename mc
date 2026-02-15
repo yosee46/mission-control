@@ -375,15 +375,19 @@ cmd_add() {
 
 cmd_list() {
   ensure_mission_id
-  local where="mission_id=$MID"
+  local where="mission_id=$MID" show_all=false
   while [[ $# -gt 0 ]]; do
     case "$1" in
       --status) where="$where AND status='$2'"; shift 2;;
       --owner) where="$where AND owner='$2'"; shift 2;;
       --mine) where="$where AND owner='$AGENT'"; shift;;
+      --all) show_all=true; shift;;
       *) shift;;
     esac
   done
+  if [[ "$show_all" == false ]]; then
+    where="$where AND status NOT IN ('done','cancelled')"
+  fi
   sql_col "SELECT id, subject,
     CASE status WHEN 'done' THEN '✓' WHEN 'in_progress' THEN '▶' WHEN 'claimed' THEN '◉' WHEN 'blocked' THEN '✗' WHEN 'review' THEN '⟳' ELSE '○' END || ' ' || status AS st,
     COALESCE(owner,'-') AS owner,
@@ -546,7 +550,7 @@ USAGE: mc [-w workspace] [-m mission] <command> [args]
 
 TASKS:
   add "Subject" [-d desc] [-p 0|1|2] [--for agent]   Create task
-  list [--status S] [--owner A] [--mine]              List tasks
+  list [--status S] [--owner A] [--mine] [--all]       List tasks
   claim <id>                                           Claim a task
   start <id>                                           Begin work
   done <id> [-m "note"]                                Complete task
