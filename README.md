@@ -11,6 +11,7 @@ mc board
 
 ```
 ═══ MISSION CONTROL ═══  14:32  agent: jarvis
+  workspace: default  mission: default
 
 ── ○ pending (1) ──
   #1 Research competitors
@@ -24,6 +25,7 @@ Running 3+ OpenClaw agents? You have the "who is doing what?" problem. Mission C
 - **SSH-queryable.** `ssh your-vps mc board`
 - **Works offline.** Local SQLite, no cloud dependency.
 - **OpenClaw-native.** Install as a skill, works with existing agents.
+- **Multi-project.** Workspaces for physical DB isolation, missions for logical task separation.
 
 ## Install
 
@@ -72,6 +74,50 @@ mc fleet
 mc feed --last 10
 ```
 
+## Workspaces & Missions
+
+Workspaces provide **physical DB isolation** — each workspace has its own SQLite file, so parallel projects never conflict. Missions provide **logical task isolation** within a workspace.
+
+```
+~/.openclaw/
+├── config.json
+└── workspaces/
+    ├── default/mission-control.db
+    ├── project-alpha/mission-control.db
+    └── my-saas/mission-control.db
+```
+
+```bash
+# Create a workspace for a new project
+mc workspace create my-saas
+
+# Create missions within it
+mc -w my-saas mission create "v1-release" -d "Ship v1.0"
+mc -w my-saas mission create "security-audit" -d "Q1 security review"
+
+# Tasks are isolated per mission
+mc -w my-saas -m v1-release add "Implement auth"
+mc -w my-saas -m security-audit add "Scan dependencies"
+
+# List only v1-release tasks
+mc -w my-saas -m v1-release list
+```
+
+### Resolution Priority
+
+**Workspace:** CLI flag (`-w`) > `MC_WORKSPACE` env > `.mc-workspace` file > `config.json` default > `"default"`
+
+**Mission:** CLI flag (`-m`) > `MC_MISSION` env > `config.json` per-workspace default > `"default"`
+
+If `MC_DB` is set, workspace resolution is skipped entirely (backward compatible).
+
+### Migration from v0.1
+
+```bash
+# Migrate legacy ~/.openclaw/mission-control.db to default workspace
+mc migrate
+```
+
 ## Agent Integration
 
 Add to each agent's cron (heartbeat):
@@ -101,21 +147,42 @@ After completing work, run: mc done <id> -m "what I did"
 | `mc fleet` | Agent status |
 | `mc feed` | Activity log |
 | `mc summary` | Fleet overview |
+| `mc workspace create <name>` | Create workspace |
+| `mc workspace list` | List workspaces |
+| `mc mission create <name>` | Create mission |
+| `mc mission list` | List missions |
+| `mc mission archive <name>` | Archive mission |
+| `mc migrate` | Migrate legacy DB |
 
 ## Architecture
 
 ```
-┌─────────────────────┐
-│    mc CLI (bash)     │ ← Every agent calls this
-├─────────────────────┤
-│  SQLite (WAL mode)  │ ← ~/.openclaw/mission-control.db
-├─────────────────────┤
-│  4 tables:          │
-│  - tasks            │ ← Kanban board
-│  - messages         │ ← Inter-agent comms
-│  - agents           │ ← Fleet registry
-│  - activity         │ ← Append-only audit log
-└─────────────────────┘
+┌──────────────────────────────┐
+│    mc CLI (bash)              │ ← Every agent calls this
+├──────────────────────────────┤
+│  SQLite (WAL + busy_timeout) │ ← Per-workspace DB files
+├──────────────────────────────┤
+│  ~/.openclaw/workspaces/     │
+│    └── <name>/               │
+│        └── mission-control.db│
+│            ├── missions      │ ← Logical task groups
+│            ├── tasks         │ ← Kanban board (per mission)
+│            ├── messages      │ ← Inter-agent comms (per mission)
+│            ├── agents        │ ← Fleet registry (shared)
+│            └── activity      │ ← Audit log (per mission)
+├──────────────────────────────┤
+│  Mobile UI (Flask + SSE)     │ ← Optional: mobile/mc-server.py
+└──────────────────────────────┘
+```
+
+## Mobile UI
+
+```bash
+# Start mobile server for a specific workspace/mission
+python mobile/mc-server.py --workspace my-saas --mission v1-release
+
+# Or use environment variables
+MC_WORKSPACE=my-saas MC_MISSION=v1-release python mobile/mc-server.py
 ```
 
 ## Environment Variables
@@ -123,7 +190,17 @@ After completing work, run: mc done <id> -m "what I did"
 | Var | Default | Description |
 |-----|---------|-------------|
 | `MC_AGENT` | `$USER` | Agent identity |
-| `MC_DB` | `~/.openclaw/mission-control.db` | Database path |
+| `MC_WORKSPACE` | `default` | Workspace name |
+| `MC_MISSION` | `default` | Mission name |
+| `MC_DB` | (auto-resolved) | Direct DB path (overrides workspace) |
+
+## Concurrency Safety
+
+| Scenario | Protection |
+|----------|-----------|
+| Different workspaces running concurrently | Separate DB files — zero conflict |
+| Two agents writing to same workspace | WAL mode + `busy_timeout=5000ms` |
+| CLI and Flask server on same DB | WAL mode (multiple readers + 1 writer) |
 
 ## License
 

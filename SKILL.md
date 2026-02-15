@@ -1,10 +1,12 @@
 # Mission Control
 
-Shared coordination layer for OpenClaw agent fleets. Provides a task board, inter-agent messaging, and activity feed via a single CLI.
+Shared coordination layer for OpenClaw agent fleets. Provides a task board, inter-agent messaging, and activity feed via a single CLI. Supports workspaces (physical DB isolation) and multi-mission (logical task isolation).
 
 ## Setup
 
 Run `mc init` to create the database. Set your identity: `export MC_AGENT=your-name`
+
+For multiple projects, create separate workspaces: `mc workspace create my-project`
 
 ## Operational Rhythm
 
@@ -27,6 +29,9 @@ Every agent should follow this pattern:
 | Finished | `mc done <id> -m "Result"` |
 | Need review | `mc msg <reviewer> "Ready" --task <id> --type handoff` |
 | Catching up | `mc feed --last 20` or `mc summary` |
+| New project | `mc workspace create project-name` |
+| Separate workstream | `mc mission create "feature-x" -d "Feature X work"` |
+| Work in specific context | `mc -w project -m feature-x list` |
 
 ## Task Statuses
 
@@ -36,6 +41,11 @@ pending → claimed → in_progress → review → done
 ```
 
 ## CLI Reference
+
+### Global Flags
+```
+mc [-w workspace] [-m mission] <command> [args]
+```
 
 ### Tasks
 ```
@@ -67,3 +77,32 @@ mc fleet
 mc feed [--last N] [--agent NAME]
 mc summary
 ```
+
+### Workspace
+```
+mc workspace create <name>
+mc workspace list
+mc workspace current
+```
+
+### Mission
+```
+mc mission create <name> [-d "description"]
+mc mission list
+mc mission archive <name>
+mc mission current
+```
+
+### Migration
+```
+mc migrate    # Migrate legacy DB to default workspace
+```
+
+## Environment Variables
+
+| Var | Default | Description |
+|-----|---------|-------------|
+| `MC_AGENT` | `$USER` | Agent identity |
+| `MC_WORKSPACE` | `default` | Workspace name |
+| `MC_MISSION` | `default` | Mission name |
+| `MC_DB` | (auto-resolved) | Direct DB path (overrides workspace) |
