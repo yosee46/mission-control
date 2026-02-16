@@ -49,7 +49,7 @@ Every time you are invoked, follow this workflow:
 mc -p {project} -m {mission} checkin
 ```
 
-**If the output contains `MISSION_PAUSED`, stop here. Do not proceed.**
+**If the output contains `MISSION_PAUSED`, `MISSION_COMPLETED`, or `MISSION_ARCHIVED`, stop here. Do not proceed.**
 
 ### 2. Check Messages
 ```bash

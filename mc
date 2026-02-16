@@ -124,6 +124,29 @@ ensure_mission_id() {
   fi
 }
 
+# Block if mission is completed or archived (allow paused — agents may need to finish work)
+ensure_mission_not_closed() {
+  ensure_mission_id
+  local mstatus
+  mstatus=$(sql "SELECT status FROM missions WHERE id=$MID;")
+  if [[ "$mstatus" == "completed" || "$mstatus" == "archived" ]]; then
+    echo -e "${R}Mission '$MISSION_NAME' is $mstatus.${N}" >&2
+    return 1
+  fi
+}
+
+# Block if mission is not active (paused/completed/archived)
+ensure_mission_writable() {
+  ensure_mission_id
+  local mstatus
+  mstatus=$(sql "SELECT status FROM missions WHERE id=$MID;")
+  if [[ "$mstatus" != "active" ]]; then
+    echo -e "${R}Mission '$MISSION_NAME' is $mstatus — cannot modify.${N}" >&2
+    [[ "$mstatus" == "paused" ]] && echo -e "${Y}Resume: mc -p $PROJECT -m $MISSION_NAME mission resume${N}" >&2
+    return 1
+  fi
+}
+
 # ═══════════════════════════════════════════
 # CONFIG HELPERS
 # ═══════════════════════════════════════════
@@ -228,6 +251,12 @@ cmd_mission() {
       while [[ $# -gt 0 ]]; do
         case "$1" in -d) desc="$2"; shift 2;; *) shift;; esac
       done
+      local existing
+      existing=$(sql "SELECT status FROM missions WHERE name='$(echo "$name" | sed "s/'/''/g")';")
+      if [[ -n "$existing" ]]; then
+        echo -e "${Y}Mission '$name' already exists (status: $existing)${N}"
+        return 0
+      fi
       sql "INSERT INTO missions(name,description) VALUES('$(echo "$name" | sed "s/'/''/g")','$(echo "$desc" | sed "s/'/''/g")');"
       echo -e "${G}Mission '$name' created${N}"
       ;;
@@ -619,13 +648,14 @@ cmd_checkin() {
       COALESCE((SELECT registered_at FROM agents WHERE name='$AGENT'),datetime('now')));"
   ensure_mission_id
 
-  # Pause guard — if mission is paused, stop here
+  # Mission status guard
   local mstatus
   mstatus=$(sql "SELECT status FROM missions WHERE id=$MID;")
-  if [[ "$mstatus" == "paused" ]]; then
-    echo "MISSION_PAUSED"
-    return 0
-  fi
+  case "$mstatus" in
+    paused)    echo "MISSION_PAUSED"; return 0 ;;
+    completed) echo "MISSION_COMPLETED"; return 0 ;;
+    archived)  echo "MISSION_ARCHIVED"; return 0 ;;
+  esac
 
   log_activity "checkin" "agent" 0 ""
   local unread
@@ -638,7 +668,7 @@ cmd_checkin() {
 }
 
 cmd_add() {
-  ensure_mission_id
+  ensure_mission_writable
   local subject="" desc="" priority=0 assignee="" task_type="normal" scheduled_at=""
   subject="${1:?Usage: mc add \"Subject\" [-d desc] [-p 0|1|2] [--for agent] [--type normal|checkpoint] [--at \"YYYY-MM-DD HH:MM\"]}"
   shift
@@ -697,7 +727,7 @@ cmd_list() {
 }
 
 cmd_claim() {
-  ensure_mission_id
+  ensure_mission_writable
   local id="${1:?Usage: mc claim <id>}"
   local current status
   current=$(sql "SELECT owner FROM tasks WHERE id=$id AND mission_id=$MID;")
@@ -714,7 +744,7 @@ cmd_claim() {
 }
 
 cmd_start() {
-  ensure_mission_id
+  ensure_mission_writable
   local id="${1:?Usage: mc start <id>}"
   local status
   status=$(sql "SELECT status FROM tasks WHERE id=$id AND mission_id=$MID;")
@@ -728,7 +758,7 @@ cmd_start() {
 }
 
 cmd_done() {
-  ensure_mission_id
+  ensure_mission_not_closed
   local id="${1:?Usage: mc done <id> [-m note]}" note=""
   shift
   while [[ $# -gt 0 ]]; do case "$1" in -m) note="$2"; shift 2;; *) shift;; esac; done
@@ -792,7 +822,7 @@ for job in data.get('jobs', []):
 }
 
 cmd_block() {
-  ensure_mission_id
+  ensure_mission_writable
   local id="${1:?Usage: mc block <id> --by <other-id>}" by=""
   shift
   while [[ $# -gt 0 ]]; do case "$1" in --by) by="$2"; shift 2;; *) shift;; esac; done
@@ -844,7 +874,7 @@ cmd_board() {
 # ═══════════════════════════════════════════
 
 cmd_msg() {
-  ensure_mission_id
+  ensure_mission_not_closed
   local to="${1:?Usage: mc msg <agent> \"body\" [--task id] [--type TYPE]}" body="${2:?}" task_id="NULL" msg_type="comment"
   shift 2
   while [[ $# -gt 0 ]]; do
@@ -856,7 +886,7 @@ cmd_msg() {
 }
 
 cmd_broadcast() {
-  ensure_mission_id
+  ensure_mission_not_closed
   local body="${1:?Usage: mc broadcast \"body\"}"
   sql "INSERT INTO messages(mission_id,from_agent,to_agent,body,msg_type) VALUES($MID,'$AGENT',NULL,'$(echo "$body" | sed "s/'/''/g")','alert');"
   log_activity "broadcast" "message" 0 "$body"

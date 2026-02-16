@@ -136,7 +136,7 @@ def generate_cron_message(agent_id: str, project: str, mission: str, profile_env
     return (
         f"You are {agent_id}. Read your AGENTS.md, then execute your workflow: "
         f"{mc} -p {project} -m {mission} checkin — "
-        f"if output contains MISSION_PAUSED then stop. "
+        f"if output contains MISSION_PAUSED, MISSION_COMPLETED, or MISSION_ARCHIVED then stop. "
         f"Otherwise: {mc} -p {project} -m {mission} list --mine --status pending && "
         f"claim and work on your highest-priority task. "
         f"If no tasks, check {mc} -p {project} -m {mission} list --status pending for unclaimed work."
