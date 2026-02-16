@@ -40,6 +40,16 @@ chmod +x mission-control/mc
 export PATH="$PATH:$(pwd)/mission-control"
 ```
 
+### Prerequisites
+
+```bash
+# Debian/Ubuntu
+sudo apt install sqlite3 trash-cli
+```
+
+- **sqlite3** — mc CLI のデータストア（macOS はプリインストール済み）
+- **trash-cli** — ヘッドレスLinuxサーバーで `openclaw agents delete` がファイル削除するために必要
+
 ### OMOS Setup (Orchestrated Teams)
 
 For the full orchestration system (architect agent + dynamic team composition):

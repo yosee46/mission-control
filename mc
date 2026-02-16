@@ -267,33 +267,26 @@ cmd_mission() {
       sql "UPDATE missions SET status='completed', updated_at=datetime('now') WHERE id=$MID;"
       echo -e "${G}[1/4] Mission archived${N}"
 
-      # 3. Remove cron jobs matching pattern (lookup id by name from JSON)
+      # 3. Remove cron jobs matching pattern (by name prefix, including monitor)
       echo -e "${C}[2/4] Removing cron jobs (${pattern}*)...${N}"
-      local agents_list
-      agents_list=$(sql "SELECT name FROM agents WHERE name LIKE '${pattern}%';")
-      if [ -n "$agents_list" ]; then
-        local cron_json
-        cron_json=$(openclaw $oc_profile_flag cron list --json 2>/dev/null || echo '{"jobs":[]}')
-        while IFS= read -r agent_name; do
-          [ -z "$agent_name" ] && continue
-          local cron_id
-          cron_id=$(echo "$cron_json" | python3 -c "
+      local cron_json
+      cron_json=$(openclaw $oc_profile_flag cron list --json 2>/dev/null || echo '{"jobs":[]}')
+      local cron_matches
+      cron_matches=$(echo "$cron_json" | python3 -c "
 import sys, json
 data = json.load(sys.stdin)
 for job in data.get('jobs', []):
-    if job.get('name') == '$agent_name':
-        print(job['id'])
-        break" 2>/dev/null)
-          if [ -n "$cron_id" ]; then
-            openclaw $oc_profile_flag cron rm "$cron_id" 2>/dev/null && \
-              echo -e "  Removed cron: $agent_name ($cron_id)" || \
-              echo -e "  ${Y}Failed to remove cron: $agent_name${N}"
-          else
-            echo -e "  ${Y}No cron found: $agent_name${N}"
-          fi
-        done <<< "$agents_list"
+    if job.get('name','').startswith('$pattern'):
+        print(job['id'] + '|' + job['name'])" 2>/dev/null)
+      if [ -n "$cron_matches" ]; then
+        while IFS='|' read -r cron_id cron_name; do
+          [[ -z "$cron_id" ]] && continue
+          openclaw $oc_profile_flag cron rm "$cron_id" 2>/dev/null && \
+            echo -e "  Removed cron: $cron_name ($cron_id)" || \
+            echo -e "  ${Y}Failed to remove cron: $cron_name${N}"
+        done <<< "$cron_matches"
       else
-        echo "  (no matching agents)"
+        echo "  (no matching crons)"
       fi
 
       # 4. Remove openclaw agents
