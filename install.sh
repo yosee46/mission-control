@@ -15,7 +15,7 @@ else
   OC_PROFILE_FLAG=""
 fi
 TEMPLATE_DIR="$CONFIG_DIR/mc-templates"
-ARCHITECT_WS="$CONFIG_DIR/workspace-mc-architect"
+ARCHITECT_WS="$CONFIG_DIR/agent_workspaces/mc-architect"
 
 echo -e "${B}═══ OMOS Installer ═══${N}"
 echo ""

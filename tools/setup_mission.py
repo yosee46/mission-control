@@ -232,7 +232,7 @@ def main():
 
     for role in roles:
         agent_id = f"{project}-{role}"
-        ws_dir = CONFIG_DIR / f"workspace-{agent_id}"
+        ws_dir = CONFIG_DIR / "agent_workspaces" / agent_id
 
         print(f"\n  --- {agent_id} ---")
 

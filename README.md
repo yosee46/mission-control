@@ -178,10 +178,11 @@ Workspaces provide **physical DB isolation** — each workspace has its own SQLi
 │   ├── researcher.md
 │   ├── coder.md
 │   └── reviewer.md
-├── workspace-mc-architect/              # Architect agent
-│   └── AGENTS.md
-├── workspace-<project>-<role>/          # Dynamic agent workspaces
-│   └── AGENTS.md
+├── agent_workspaces/                    # Agent workspaces
+│   ├── mc-architect/
+│   │   └── AGENTS.md
+│   └── <project>-<role>/
+│       └── AGENTS.md
 └── workspaces/                          # MC databases
     ├── default/mission-control.db
     ├── project-alpha/mission-control.db
