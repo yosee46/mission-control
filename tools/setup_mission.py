@@ -2,8 +2,11 @@
 """
 setup_mission — OMOS Team Composition Tool
 
-Creates MC workspace + mission, then registers openclaw agents with
+Creates MC project + mission, then registers openclaw agents with
 role-specific AGENTS.md and cron jobs for each team member.
+
+Agents are named {project}-{mission}-{role} to ensure isolation per mission.
+Cleanup: mc -p <project> -m <mission> mission complete
 
 Usage:
   setup_mission <project> <mission> "<goal>" --roles role1,role2,...
@@ -76,11 +79,11 @@ You are **{agent_id}**, a {role_description} working on project **{project}**.
 - **Working Directory**: ~/projects/{project}/
 
 ## Workflow
-1. `mc -w {project} -m {mission} checkin`
-2. `mc -w {project} -m {mission} list --mine --status pending`
-3. Claim highest-priority task: `mc -w {project} -m {mission} claim <id>`
-4. Start work: `mc -w {project} -m {mission} start <id>`
-5. Complete: `mc -w {project} -m {mission} done <id> -m "what I did"`
+1. `mc -p {project} -m {mission} checkin`
+2. `mc -p {project} -m {mission} list --mine --status pending`
+3. Claim highest-priority task: `mc -p {project} -m {mission} claim <id>`
+4. Start work: `mc -p {project} -m {mission} start <id>`
+5. Complete: `mc -p {project} -m {mission} done <id> -m "what I did"`
 """
 
 
@@ -132,18 +135,18 @@ def generate_cron_message(agent_id: str, project: str, mission: str, profile_env
     mc = f"{profile_env}mc" if profile_env else "mc"
     return (
         f"You are {agent_id}. Read your AGENTS.md, then execute your workflow: "
-        f"{mc} -w {project} -m {mission} checkin && "
-        f"{mc} -w {project} -m {mission} list --mine --status pending && "
+        f"{mc} -p {project} -m {mission} checkin && "
+        f"{mc} -p {project} -m {mission} list --mine --status pending && "
         f"claim and work on your highest-priority task. "
-        f"If no tasks, check {mc} -w {project} -m {mission} list --status pending for unclaimed work."
+        f"If no tasks, check {mc} -p {project} -m {mission} list --status pending for unclaimed work."
     )
 
 
 def main():
     parser = argparse.ArgumentParser(
-        description="OMOS Team Composition Tool — create MC workspace, mission, and agent team"
+        description="OMOS Team Composition Tool — create MC project, mission, and agent team"
     )
-    parser.add_argument("project", help="Project name (used as workspace name)")
+    parser.add_argument("project", help="Project name (used as MC project name)")
     parser.add_argument("mission", help="Mission name")
     parser.add_argument("goal", help="Mission goal description")
     parser.add_argument(
@@ -206,17 +209,17 @@ def main():
     if dry_run:
         print("[DRY RUN] No changes will be made.\n")
 
-    # ─── Step 1: Create MC workspace ───
-    print(f"[1/5] Creating MC workspace '{project}'...")
+    # ─── Step 1: Create MC project ───
+    print(f"[1/5] Creating MC project '{project}'...")
     if not dry_run:
-        run(f'{profile_env}mc -w {project} init')
+        run(f'{profile_env}mc -p {project} init')
     print(f"  OK")
 
     # ─── Step 2: Create mission ───
     print(f"[2/5] Creating mission '{mission}'...")
     if not dry_run:
         escaped_goal = goal.replace("'", "'\\''")
-        run(f"{profile_env}mc -w {project} mission create {mission} -d '{escaped_goal}'")
+        run(f"{profile_env}mc -p {project} mission create {mission} -d '{escaped_goal}'")
     print(f"  OK")
 
     # ─── Step 3: Create project directory ───
@@ -231,7 +234,7 @@ def main():
     agents_created = []
 
     for role in roles:
-        agent_id = f"{project}-{role}"
+        agent_id = f"{project}-{mission}-{role}"
         ws_dir = CONFIG_DIR / "agent_workspaces" / agent_id
 
         print(f"\n  --- {agent_id} ---")
@@ -269,7 +272,7 @@ def main():
         print(f"  Registering in MC fleet")
         if not dry_run:
             run(
-                f"{profile_env}MC_AGENT={agent_id} mc -w {project} register {agent_id} --role {role}",
+                f"{profile_env}MC_AGENT={agent_id} mc -p {project} register {agent_id} --role {role}",
                 check=False,
             )
 
@@ -296,8 +299,8 @@ def main():
     print(f"\n[5/5] Summary")
     print(f"")
     print(f"═══ Team Ready ═══")
-    print(f"  Workspace:  {mc_prefix} -w {project}")
-    print(f"  Mission:    {mc_prefix} -w {project} -m {mission}")
+    print(f"  Project:    {mc_prefix} -p {project}")
+    print(f"  Mission:    {mc_prefix} -p {project} -m {mission}")
     print(f"  Project:    {project_dir}/")
     if profile:
         print(f"  Profile:    {profile}")
@@ -307,12 +310,15 @@ def main():
     print(f"")
     print(f"Next: Use mc to add tasks for the team:")
     for role in roles:
-        agent_id = f"{project}-{role}"
-        print(f'  {mc_prefix} -w {project} -m {mission} add "Task description" --for {agent_id}')
+        agent_id = f"{project}-{mission}-{role}"
+        print(f'  {mc_prefix} -p {project} -m {mission} add "Task description" --for {agent_id}')
     print(f"")
     print(f"Monitor:")
-    print(f"  {mc_prefix} -w {project} -m {mission} board")
-    print(f"  {mc_prefix} -w {project} fleet")
+    print(f"  {mc_prefix} -p {project} -m {mission} board")
+    print(f"  {mc_prefix} -p {project} fleet")
+    print(f"")
+    print(f"Cleanup (when mission is done):")
+    print(f"  {mc_prefix} -p {project} -m {mission} mission complete")
 
 
 if __name__ == "__main__":

@@ -46,28 +46,28 @@ Every time you are invoked, follow this workflow:
 
 ### 1. Check In
 ```bash
-mc -w {project} -m {mission} checkin
+mc -p {project} -m {mission} checkin
 ```
 
 ### 2. Check Messages
 ```bash
-mc -w {project} -m {mission} inbox --unread
+mc -p {project} -m {mission} inbox --unread
 ```
 Read any messages — especially research handoffs or review feedback.
 
 ### 3. Find Work
 ```bash
-mc -w {project} -m {mission} list --mine --status pending
+mc -p {project} -m {mission} list --mine --status pending
 ```
 If no assigned tasks:
 ```bash
-mc -w {project} -m {mission} list --status pending
+mc -p {project} -m {mission} list --status pending
 ```
 
 ### 4. Claim and Start
 ```bash
-mc -w {project} -m {mission} claim <id>
-mc -w {project} -m {mission} start <id>
+mc -p {project} -m {mission} claim <id>
+mc -p {project} -m {mission} start <id>
 ```
 
 ### 5. Implement
@@ -77,25 +77,25 @@ Work in `~/projects/{project}/`. After implementation:
 
 ### 6. Complete
 ```bash
-mc -w {project} -m {mission} done <id> -m "Implemented <feature>. Files: <list of key files>"
+mc -p {project} -m {mission} done <id> -m "Implemented <feature>. Files: <list of key files>"
 ```
 
 ### 7. Request Review or Continue
 If a reviewer is on the team:
 ```bash
-mc -w {project} -m {mission} msg {project}-reviewer "Ready for review: <description>" --type handoff
+mc -p {project} -m {mission} msg {project}-reviewer "Ready for review: <description>" --type handoff
 ```
 
 If all tasks complete:
 ```bash
-mc -w {project} -m {mission} msg mc-architect "All implementation tasks complete"
+mc -p {project} -m {mission} msg mc-architect "All implementation tasks complete"
 ```
 
 ## Communication
 
-- **Ask for help**: `mc -w {project} -m {mission} msg <agent> "question" --type question`
-- **Hand off for review**: `mc -w {project} -m {mission} msg <agent> "ready for review" --type handoff`
-- **Report issue**: `mc -w {project} -m {mission} msg mc-architect "blocked on X" --type alert`
+- **Ask for help**: `mc -p {project} -m {mission} msg <agent> "question" --type question`
+- **Hand off for review**: `mc -p {project} -m {mission} msg <agent> "ready for review" --type handoff`
+- **Report issue**: `mc -p {project} -m {mission} msg mc-architect "blocked on X" --type alert`
 
 ## Safety Rules
 

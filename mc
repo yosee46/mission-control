@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Mission Control v0.2 — Coordination layer for OpenClaw agent fleets
 # Zero dependencies beyond bash + sqlite3
-# Supports workspaces (physical DB isolation) and multi-mission (logical isolation)
+# Supports projects (physical DB isolation) and multi-mission (logical isolation)
 set -euo pipefail
 
 AGENT="${MC_AGENT:-$(whoami)}"
@@ -20,14 +20,14 @@ R='\033[0;31m' G='\033[0;32m' Y='\033[1;33m' C='\033[0;36m' B='\033[1m' N='\033[
 # GLOBAL FLAG PARSING (before subcommand)
 # ═══════════════════════════════════════════
 
-WS_FLAG=""
+PROJECT_FLAG=""
 MISSION_FLAG=""
 ARGS=()
 
 # Only parse global flags BEFORE the subcommand (first non-flag argument)
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    -w|--workspace) WS_FLAG="$2"; shift 2;;
+    -p|--project|-w|--workspace) PROJECT_FLAG="$2"; shift 2;;
     -m|--mission)   MISSION_FLAG="$2"; shift 2;;
     -*) ARGS+=("$1"); shift;;   # unknown flag before subcommand
     *)  break;;                  # subcommand found — stop global parsing
@@ -39,15 +39,19 @@ ARGS+=("$@")
 set -- "${ARGS[@]+"${ARGS[@]}"}"
 
 # ═══════════════════════════════════════════
-# WORKSPACE & MISSION RESOLUTION
+# PROJECT & MISSION RESOLUTION
 # ═══════════════════════════════════════════
 
-resolve_workspace() {
-  if [ -n "$WS_FLAG" ]; then echo "$WS_FLAG"; return; fi
+resolve_project() {
+  if [ -n "$PROJECT_FLAG" ]; then echo "$PROJECT_FLAG"; return; fi
+  if [ -n "${MC_PROJECT:-}" ]; then echo "$MC_PROJECT"; return; fi
   if [ -n "${MC_WORKSPACE:-}" ]; then echo "$MC_WORKSPACE"; return; fi
   if [ -f ".mc-workspace" ]; then cat .mc-workspace; return; fi
   if [ -f "$CONFIG_DIR/config.json" ]; then
     local val
+    val=$(grep -o '"default_project":"[^"]*"' "$CONFIG_DIR/config.json" 2>/dev/null | head -1 | cut -d'"' -f4)
+    if [ -n "$val" ]; then echo "$val"; return; fi
+    # Fallback: legacy key
     val=$(grep -o '"default_workspace":"[^"]*"' "$CONFIG_DIR/config.json" 2>/dev/null | head -1 | cut -d'"' -f4)
     if [ -n "$val" ]; then echo "$val"; return; fi
   fi
@@ -58,15 +62,16 @@ resolve_mission() {
   if [ -n "$MISSION_FLAG" ]; then echo "$MISSION_FLAG"; return; fi
   if [ -n "${MC_MISSION:-}" ]; then echo "$MC_MISSION"; return; fi
   if [ -f "$CONFIG_DIR/config.json" ]; then
-    local ws
-    ws=$(resolve_workspace)
-    # Try to extract workspace-specific default mission from config
+    local proj
+    proj=$(resolve_project)
+    # Try to extract project-specific default mission from config
     local val
     val=$(python3 -c "
 import json,sys
 try:
   c=json.load(open('$CONFIG_DIR/config.json'))
-  print(c.get('workspaces',{}).get('$ws',{}).get('default_mission',''))
+  p=c.get('projects',c.get('workspaces',{}))
+  print(p.get('$proj',{}).get('default_mission',''))
 except: pass
 " 2>/dev/null || true)
     if [ -n "$val" ]; then echo "$val"; return; fi
@@ -77,10 +82,10 @@ except: pass
 # DB resolution — MC_DB takes priority for backward compat
 if [ -n "${MC_DB:-}" ]; then
   DB="$MC_DB"
-  WORKSPACE="(custom)"
+  PROJECT="(custom)"
 else
-  WORKSPACE=$(resolve_workspace)
-  DB="$CONFIG_DIR/workspaces/$WORKSPACE/mission-control.db"
+  PROJECT=$(resolve_project)
+  DB="$CONFIG_DIR/projects/$PROJECT/mission-control.db"
 fi
 
 MISSION_NAME=$(resolve_mission)
@@ -128,8 +133,8 @@ ensure_config() {
     mkdir -p "$CONFIG_DIR"
     cat > "$CONFIG_DIR/config.json" <<'CONF'
 {
-  "default_workspace": "default",
-  "workspaces": {
+  "default_project": "default",
+  "projects": {
     "default": {
       "default_mission": "default",
       "created_at": ""
@@ -140,18 +145,18 @@ CONF
   fi
 }
 
-update_config_workspace() {
-  local ws_name="$1"
+update_config_project() {
+  local proj_name="$1"
   ensure_config
   python3 -c "
 import json, datetime
 f='$CONFIG_DIR/config.json'
 try:
   c=json.load(open(f))
-except: c={'default_workspace':'default','workspaces':{}}
-if 'workspaces' not in c: c['workspaces']={}
-if '$ws_name' not in c['workspaces']:
-  c['workspaces']['$ws_name']={
+except: c={'default_project':'default','projects':{}}
+if 'projects' not in c: c['projects']={}
+if '$proj_name' not in c['projects']:
+  c['projects']['$proj_name']={
     'default_mission':'default',
     'created_at': datetime.datetime.now().isoformat()
   }
@@ -160,51 +165,51 @@ json.dump(c,open(f,'w'),indent=2)
 }
 
 # ═══════════════════════════════════════════
-# COMMANDS: WORKSPACE MANAGEMENT
+# COMMANDS: PROJECT MANAGEMENT
 # ═══════════════════════════════════════════
 
-cmd_workspace() {
+cmd_project() {
   local subcmd="${1:-help}"
   shift || true
   case "$subcmd" in
     create)
-      local name="${1:?Usage: mc workspace create <name>}"
-      local ws_dir="$CONFIG_DIR/workspaces/$name"
-      if [ -d "$ws_dir" ]; then
-        echo -e "${Y}Workspace '$name' already exists${N}"; return 0
+      local name="${1:?Usage: mc project create <name>}"
+      local proj_dir="$CONFIG_DIR/projects/$name"
+      if [ -d "$proj_dir" ]; then
+        echo -e "${Y}Project '$name' already exists${N}"; return 0
       fi
-      mkdir -p "$ws_dir"
-      # Init DB for this workspace
-      sqlite3 "$ws_dir/mission-control.db" < "$SCHEMA_DIR/schema.sql"
-      sqlite3 "$ws_dir/mission-control.db" "PRAGMA journal_mode=WAL;" > /dev/null
-      update_config_workspace "$name"
-      echo -e "${G}Workspace '$name' created${N} → $ws_dir"
+      mkdir -p "$proj_dir"
+      # Init DB for this project
+      sqlite3 "$proj_dir/mission-control.db" < "$SCHEMA_DIR/schema.sql"
+      sqlite3 "$proj_dir/mission-control.db" "PRAGMA journal_mode=WAL;" > /dev/null
+      update_config_project "$name"
+      echo -e "${G}Project '$name' created${N} → $proj_dir"
       ;;
     list)
-      echo -e "${B}═══ WORKSPACES ═══${N}"
-      if [ -d "$CONFIG_DIR/workspaces" ]; then
-        for d in "$CONFIG_DIR/workspaces"/*/; do
+      echo -e "${B}═══ PROJECTS ═══${N}"
+      if [ -d "$CONFIG_DIR/projects" ]; then
+        for d in "$CONFIG_DIR/projects"/*/; do
           [ -d "$d" ] || continue
-          local ws_name
-          ws_name=$(basename "$d")
+          local proj_name
+          proj_name=$(basename "$d")
           local marker=""
-          [ "$ws_name" = "$WORKSPACE" ] && marker=" ${C}(current)${N}"
+          [ "$proj_name" = "$PROJECT" ] && marker=" ${C}(current)${N}"
           local db_size=""
           if [ -f "$d/mission-control.db" ]; then
             db_size=$(du -h "$d/mission-control.db" | cut -f1 | tr -d ' ')
           fi
-          echo -e "  $ws_name${marker}  ${db_size:+[$db_size]}"
+          echo -e "  $proj_name${marker}  ${db_size:+[$db_size]}"
         done
       else
         echo "  (none)"
       fi
       ;;
     current)
-      echo -e "Workspace: ${C}$WORKSPACE${N}"
-      echo -e "DB:        $DB"
+      echo -e "Project: ${C}$PROJECT${N}"
+      echo -e "DB:      $DB"
       ;;
     *)
-      echo "Usage: mc workspace <create|list|current>"
+      echo "Usage: mc project <create|list|current>"
       ;;
   esac
 }
@@ -239,13 +244,83 @@ cmd_mission() {
       sql "UPDATE missions SET status='archived', updated_at=datetime('now') WHERE name='$name';"
       echo -e "${Y}Mission '$name' archived${N}"
       ;;
+    complete)
+      # Complete a mission: archive + cleanup agents/crons/workspaces
+      ensure_mission_id
+      local pattern="$PROJECT-$MISSION_NAME-"
+      local oc_profile_flag=""
+      [ -n "${OPENCLAW_PROFILE:-}" ] && oc_profile_flag="--profile $OPENCLAW_PROFILE"
+
+      echo -e "${B}═══ Mission Complete: $MISSION_NAME ═══${N}"
+      echo ""
+
+      # 1. Check open tasks
+      local open
+      open=$(sql "SELECT COUNT(*) FROM tasks WHERE mission_id=$MID AND status NOT IN ('done','cancelled');")
+      if [ "$open" -gt 0 ]; then
+        echo -e "${Y}Warning: $open open tasks remaining${N}"
+        sql "SELECT '  #' || id || ' [' || status || '] ' || subject FROM tasks WHERE mission_id=$MID AND status NOT IN ('done','cancelled') ORDER BY id;"
+        echo ""
+      fi
+
+      # 2. Archive mission
+      sql "UPDATE missions SET status='completed', updated_at=datetime('now') WHERE id=$MID;"
+      echo -e "${G}[1/4] Mission archived${N}"
+
+      # 3. Remove cron jobs matching pattern
+      echo -e "${C}[2/4] Removing cron jobs (${pattern}*)...${N}"
+      local agents_list
+      agents_list=$(sql "SELECT name FROM agents WHERE name LIKE '${pattern}%';")
+      if [ -n "$agents_list" ]; then
+        while IFS= read -r agent_name; do
+          [ -z "$agent_name" ] && continue
+          openclaw $oc_profile_flag cron rm --name "$agent_name" 2>/dev/null && \
+            echo -e "  Removed cron: $agent_name" || \
+            echo -e "  ${Y}No cron found: $agent_name${N}"
+        done <<< "$agents_list"
+      else
+        echo "  (no matching agents)"
+      fi
+
+      # 4. Remove openclaw agents
+      echo -e "${C}[3/4] Removing openclaw agents (${pattern}*)...${N}"
+      if [ -n "$agents_list" ]; then
+        while IFS= read -r agent_name; do
+          [ -z "$agent_name" ] && continue
+          openclaw $oc_profile_flag agents delete "$agent_name" 2>/dev/null && \
+            echo -e "  Removed agent: $agent_name" || \
+            echo -e "  ${Y}Could not remove: $agent_name${N}"
+        done <<< "$agents_list"
+      fi
+
+      # 5. Remove agent workspaces
+      echo -e "${C}[4/4] Removing agent workspaces (${pattern}*)...${N}"
+      local aws_dir="$CONFIG_DIR/agent_workspaces"
+      if [ -d "$aws_dir" ]; then
+        for d in "$aws_dir"/${pattern}*/; do
+          [ -d "$d" ] || continue
+          rm -r "$d" && echo -e "  Removed: $(basename "$d")"
+        done
+      fi
+
+      # 6. Remove agents from MC fleet
+      if [ -n "$agents_list" ]; then
+        while IFS= read -r agent_name; do
+          [ -z "$agent_name" ] && continue
+          sql "DELETE FROM agents WHERE name='$agent_name';"
+        done <<< "$agents_list"
+      fi
+
+      echo ""
+      echo -e "${G}Mission '$MISSION_NAME' completed and cleaned up${N}"
+      ;;
     current)
       ensure_mission_id
       echo -e "Mission:   ${C}$MISSION_NAME${N} (id=$MID)"
-      echo -e "Workspace: $WORKSPACE"
+      echo -e "Project:   $PROJECT"
       ;;
     *)
-      echo "Usage: mc mission <create|list|archive|current>"
+      echo "Usage: mc mission <create|list|archive|complete|current>"
       ;;
   esac
 }
@@ -255,8 +330,32 @@ cmd_mission() {
 # ═══════════════════════════════════════════
 
 cmd_migrate() {
+  # ── Phase 1: Rename workspaces/ → projects/ directory ──
+  if [ -d "$CONFIG_DIR/workspaces" ] && [ ! -d "$CONFIG_DIR/projects" ]; then
+    mv "$CONFIG_DIR/workspaces" "$CONFIG_DIR/projects"
+    echo -e "${G}Renamed workspaces/ → projects/${N}"
+  fi
+
+  # ── Phase 2: Migrate config.json keys ──
+  if [ -f "$CONFIG_DIR/config.json" ]; then
+    python3 -c "
+import json
+f='$CONFIG_DIR/config.json'
+c=json.load(open(f))
+changed=False
+if 'default_workspace' in c and 'default_project' not in c:
+  c['default_project']=c.pop('default_workspace'); changed=True
+if 'workspaces' in c and 'projects' not in c:
+  c['projects']=c.pop('workspaces'); changed=True
+if changed:
+  json.dump(c,open(f,'w'),indent=2)
+  print('  Config keys migrated')
+"
+  fi
+
+  # ── Phase 3: Legacy DB migration (v0.1 → v0.2) ──
   local old_db="$CONFIG_DIR/mission-control.db"
-  local new_dir="$CONFIG_DIR/workspaces/default"
+  local new_dir="$CONFIG_DIR/projects/default"
   local new_db="$new_dir/mission-control.db"
 
   if [ ! -f "$old_db" ]; then
@@ -306,7 +405,7 @@ DETACH old;
 MIGRATE_SQL
   fi
 
-  update_config_workspace "default"
+  update_config_project "default"
 
   echo -e "${G}Migration complete${N}"
   echo -e "  Old: $old_db"
@@ -322,8 +421,8 @@ cmd_init() {
   mkdir -p "$(dirname "$DB")"
   sqlite3 "$DB" < "$SCHEMA_DIR/schema.sql"
   sqlite3 "$DB" "PRAGMA journal_mode=WAL;" > /dev/null
-  [[ "$WORKSPACE" != "(custom)" ]] && update_config_workspace "$WORKSPACE"
-  echo -e "${G}Initialized${N} $DB (workspace: $WORKSPACE)"
+  [[ "$PROJECT" != "(custom)" ]] && update_config_project "$PROJECT"
+  echo -e "${G}Initialized${N} $DB (project: $PROJECT)"
 }
 
 cmd_register() {
@@ -449,7 +548,7 @@ cmd_block() {
 cmd_board() {
   ensure_mission_id
   echo -e "${B}═══ MISSION CONTROL ═══${N}  $(date '+%H:%M')  agent: ${C}$AGENT${N}"
-  echo -e "  workspace: ${C}$WORKSPACE${N}  mission: ${C}$MISSION_NAME${N}"
+  echo -e "  project: ${C}$PROJECT${N}  mission: ${C}$MISSION_NAME${N}"
   echo ""
   for status in pending claimed in_progress review blocked done; do
     local count
@@ -524,7 +623,7 @@ cmd_feed() {
 cmd_summary() {
   ensure_mission_id
   echo -e "${B}═══ SUMMARY ═══${N}"
-  echo -e "  workspace: ${C}$WORKSPACE${N}  mission: ${C}$MISSION_NAME${N}"
+  echo -e "  project: ${C}$PROJECT${N}  mission: ${C}$MISSION_NAME${N}"
   echo ""
   echo -e "${C}Fleet:${N}"
   sql "SELECT '  ' || name || ' (' || status || ')' || CASE WHEN role != '' THEN ' — ' || role ELSE '' END FROM agents;"
@@ -539,7 +638,7 @@ cmd_summary() {
 
 cmd_whoami() {
   echo -e "Agent:     ${C}$AGENT${N}"
-  echo -e "Workspace: ${C}$WORKSPACE${N}"
+  echo -e "Project:   ${C}$PROJECT${N}"
   echo -e "Mission:   ${C}$MISSION_NAME${N}"
   echo -e "DB:        $DB"
   local role
@@ -551,7 +650,7 @@ cmd_help() {
   cat <<'EOF'
 Mission Control v0.2 — Coordination for OpenClaw agent fleets
 
-USAGE: mc [-w workspace] [-m mission] <command> [args]
+USAGE: mc [-p project] [-m mission] <command> [args]
 
 TASKS:
   add "Subject" [-d desc] [-p 0|1|2] [--for agent]   Create task
@@ -577,29 +676,30 @@ FEED:
   feed [--last N] [--agent NAME]                       Activity log
   summary                                              Fleet summary
 
-WORKSPACE:
-  workspace create <name>                              Create workspace
-  workspace list                                       List workspaces
-  workspace current                                    Show current
+PROJECT:
+  project create <name>                                Create project
+  project list                                         List projects
+  project current                                      Show current
 
 MISSION:
   mission create <name> [-d "description"]             Create mission
   mission list                                         List missions
   mission archive <name>                               Archive mission
+  mission complete                                     Complete + cleanup agents/crons
   mission current                                      Show current
 
 MIGRATION:
   migrate                                              Migrate legacy DB
 
 GLOBAL FLAGS:
-  -w, --workspace <name>   Target workspace
+  -p, --project <name>     Target project (-w/--workspace also accepted)
   -m, --mission <name>     Target mission
 
 ENV:
   MC_AGENT       Your agent name (default: $USER)
-  MC_WORKSPACE   Workspace name (default: "default")
+  MC_PROJECT     Project name (default: "default") (MC_WORKSPACE also accepted)
   MC_MISSION     Mission name (default: "default")
-  MC_DB          Direct DB path (overrides workspace resolution)
+  MC_DB          Direct DB path (overrides project resolution)
 
 QUICK START:
   mc init
@@ -615,11 +715,11 @@ EOF
 
 # Commands that don't need existing DB
 case "${1:-help}" in
-  init|help|-h|--help|workspace|migrate) ;;
+  init|help|-h|--help|project|workspace|migrate) ;;
   *)
     if [[ ! -f "$DB" ]]; then
       echo -e "${Y}No database found at $DB${N}" >&2
-      echo -e "Run: mc init${WS_FLAG:+ -w $WS_FLAG}" >&2
+      echo -e "Run: mc init${PROJECT_FLAG:+ -p $PROJECT_FLAG}" >&2
       exit 1
     fi
     ;;
@@ -643,7 +743,8 @@ case "${1:-help}" in
   feed)      shift; cmd_feed "$@" ;;
   summary)   cmd_summary ;;
   whoami)    cmd_whoami ;;
-  workspace) shift; cmd_workspace "$@" ;;
+  project)   shift; cmd_project "$@" ;;
+  workspace) shift; cmd_project "$@" ;;  # alias for backward compat
   mission)   shift; cmd_mission "$@" ;;
   migrate)   cmd_migrate ;;
   help|-h|--help) cmd_help ;;

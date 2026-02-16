@@ -11,7 +11,7 @@ mc board
 
 ```
 ═══ MISSION CONTROL ═══  14:32  agent: jarvis
-  workspace: default  mission: default
+  project: default  mission: default
 
 ── ○ pending (1) ──
   #1 Research competitors
@@ -25,7 +25,7 @@ Running 3+ OpenClaw agents? You have the "who is doing what?" problem. Mission C
 - **SSH-queryable.** `ssh your-vps mc board`
 - **Works offline.** Local SQLite, no cloud dependency.
 - **OpenClaw-native.** Install as a skill, works with existing agents.
-- **Multi-project.** Workspaces for physical DB isolation, missions for logical task separation.
+- **Multi-project.** Projects for physical DB isolation, missions for logical task separation.
 - **OMOS.** Automated team orchestration — one instruction spawns an entire agent team.
 
 ## Install
@@ -119,16 +119,16 @@ openclaw agent --agent mc-architect -m \
 
 The architect will:
 1. Analyze the mission and decide on team composition
-2. Run `setup_mission` to create workspace, agents, and cron jobs
+2. Run `setup_mission` to create project, agents, and cron jobs
 3. Break the goal into tasks and assign to agents
 4. Each agent runs autonomously on cron, claiming and completing tasks
 
 ```
 User → mc-architect → setup_mission
-                          ├── ec-site-researcher  (cron: */10)
-                          ├── ec-site-backend     (cron: */10)
-                          ├── ec-site-frontend    (cron: */10)
-                          └── ec-site-reviewer    (cron: */10)
+                          ├── ec-site-prototype-researcher  (cron: */10)
+                          ├── ec-site-prototype-backend     (cron: */10)
+                          ├── ec-site-prototype-frontend    (cron: */10)
+                          └── ec-site-prototype-reviewer    (cron: */10)
 ```
 
 ### Manual Team Setup
@@ -136,38 +136,32 @@ User → mc-architect → setup_mission
 You can also create teams directly:
 
 ```bash
-# Create workspace + mission + agents + cron jobs
+# Create project + mission + agents + cron jobs
 setup_mission ec-site prototype \
   "Django EC site with auth, products, and cart" \
   --roles researcher,backend,frontend,reviewer
 
 # Add tasks for the team
-mc -w ec-site -m prototype add "Tech stack research" -p 2 --for ec-site-researcher
-mc -w ec-site -m prototype add "Django scaffolding" -p 2 --for ec-site-backend
-mc -w ec-site -m prototype add "Top page UI" --for ec-site-frontend
-mc -w ec-site -m prototype add "Architecture review" --for ec-site-reviewer
+mc -p ec-site -m prototype add "Tech stack research" -p 2 --for ec-site-prototype-researcher
+mc -p ec-site -m prototype add "Django scaffolding" -p 2 --for ec-site-prototype-backend
+mc -p ec-site -m prototype add "Top page UI" --for ec-site-prototype-frontend
+mc -p ec-site -m prototype add "Architecture review" --for ec-site-prototype-reviewer
 
 # Monitor
-mc -w ec-site -m prototype board
-mc -w ec-site fleet
+mc -p ec-site -m prototype board
+mc -p ec-site fleet
 ```
 
 ### Mission Cleanup
 
 ```bash
-# Stop cron jobs (add --profile <name> if using a profile)
-openclaw cron rm --name ec-site-*
-
-# Remove agents
-openclaw agents delete ec-site-*
-
-# Archive mission (add OPENCLAW_PROFILE=<name> prefix if using a profile)
-mc -w ec-site mission archive prototype
+# Complete mission — archives + removes crons/agents/workspaces in one command
+mc -p ec-site -m prototype mission complete
 ```
 
-## Workspaces & Missions
+## Projects & Missions
 
-Workspaces provide **physical DB isolation** — each workspace has its own SQLite file, so parallel projects never conflict. Missions provide **logical task isolation** within a workspace.
+Projects provide **physical DB isolation** — each project has its own SQLite file, so parallel projects never conflict. Missions provide **logical task isolation** within a project.
 
 ```
 ~/.openclaw/                             # Default (no profile)
@@ -181,42 +175,42 @@ Workspaces provide **physical DB isolation** — each workspace has its own SQLi
 ├── agent_workspaces/                    # Agent workspaces
 │   ├── mc-architect/
 │   │   └── AGENTS.md
-│   └── <project>-<role>/
+│   └── <project>-<mission>-<role>/
 │       └── AGENTS.md
-└── workspaces/                          # MC databases
+└── projects/                            # MC databases
     ├── default/mission-control.db
     ├── project-alpha/mission-control.db
     └── my-saas/mission-control.db
 ```
 
 ```bash
-# Create a workspace for a new project
-mc workspace create my-saas
+# Create a project
+mc project create my-saas
 
 # Create missions within it
-mc -w my-saas mission create "v1-release" -d "Ship v1.0"
-mc -w my-saas mission create "security-audit" -d "Q1 security review"
+mc -p my-saas mission create "v1-release" -d "Ship v1.0"
+mc -p my-saas mission create "security-audit" -d "Q1 security review"
 
 # Tasks are isolated per mission
-mc -w my-saas -m v1-release add "Implement auth"
-mc -w my-saas -m security-audit add "Scan dependencies"
+mc -p my-saas -m v1-release add "Implement auth"
+mc -p my-saas -m security-audit add "Scan dependencies"
 
 # List only v1-release tasks
-mc -w my-saas -m v1-release list
+mc -p my-saas -m v1-release list
 ```
 
 ### Resolution Priority
 
-**Workspace:** CLI flag (`-w`) > `MC_WORKSPACE` env > `.mc-workspace` file > `config.json` default > `"default"`
+**Project:** CLI flag (`-p`) > `MC_PROJECT` env > `MC_WORKSPACE` env (compat) > `.mc-workspace` file > `config.json` default > `"default"`
 
-**Mission:** CLI flag (`-m`) > `MC_MISSION` env > `config.json` per-workspace default > `"default"`
+**Mission:** CLI flag (`-m`) > `MC_MISSION` env > `config.json` per-project default > `"default"`
 
-If `MC_DB` is set, workspace resolution is skipped entirely (backward compatible).
+If `MC_DB` is set, project resolution is skipped entirely (backward compatible).
 
 ### Migration from v0.1
 
 ```bash
-# Migrate legacy ~/.openclaw/mission-control.db to default workspace
+# Migrate legacy ~/.openclaw/mission-control.db to default project
 mc migrate
 ```
 
@@ -249,10 +243,11 @@ After completing work, run: mc done <id> -m "what I did"
 | `mc fleet` | Agent status |
 | `mc feed` | Activity log |
 | `mc summary` | Fleet overview |
-| `mc workspace create <name>` | Create workspace |
-| `mc workspace list` | List workspaces |
+| `mc project create <name>` | Create project |
+| `mc project list` | List projects |
 | `mc mission create <name>` | Create mission |
 | `mc mission list` | List missions |
+| `mc mission complete` | Complete + cleanup agents/crons |
 | `mc mission archive <name>` | Archive mission |
 | `mc migrate` | Migrate legacy DB |
 
@@ -262,9 +257,9 @@ After completing work, run: mc done <id> -m "what I did"
 ┌──────────────────────────────┐
 │    mc CLI (bash)              │ ← Every agent calls this
 ├──────────────────────────────┤
-│  SQLite (WAL + busy_timeout) │ ← Per-workspace DB files
+│  SQLite (WAL + busy_timeout) │ ← Per-project DB files
 ├──────────────────────────────┤
-│  ~/.openclaw/workspaces/     │
+│  ~/.openclaw/projects/       │
 │    └── <name>/               │
 │        └── mission-control.db│
 │            ├── missions      │ ← Logical task groups
@@ -282,11 +277,11 @@ After completing work, run: mc done <id> -m "what I did"
 ## Mobile UI
 
 ```bash
-# Start mobile server for a specific workspace/mission
-python mobile/mc-server.py --workspace my-saas --mission v1-release
+# Start mobile server for a specific project/mission
+python mobile/mc-server.py --project my-saas --mission v1-release
 
 # Or use environment variables
-MC_WORKSPACE=my-saas MC_MISSION=v1-release python mobile/mc-server.py
+MC_PROJECT=my-saas MC_MISSION=v1-release python mobile/mc-server.py
 ```
 
 ## Environment Variables
@@ -294,17 +289,17 @@ MC_WORKSPACE=my-saas MC_MISSION=v1-release python mobile/mc-server.py
 | Var | Default | Description |
 |-----|---------|-------------|
 | `MC_AGENT` | `$USER` | Agent identity |
-| `MC_WORKSPACE` | `default` | Workspace name |
+| `MC_PROJECT` | `default` | Project name (`MC_WORKSPACE` also accepted) |
 | `MC_MISSION` | `default` | Mission name |
-| `MC_DB` | (auto-resolved) | Direct DB path (overrides workspace) |
+| `MC_DB` | (auto-resolved) | Direct DB path (overrides project) |
 | `OPENCLAW_PROFILE` | (none) | OpenClaw profile name — uses `~/.openclaw-<profile>/` |
 
 ## Concurrency Safety
 
 | Scenario | Protection |
 |----------|-----------|
-| Different workspaces running concurrently | Separate DB files — zero conflict |
-| Two agents writing to same workspace | WAL mode + `busy_timeout=5000ms` |
+| Different projects running concurrently | Separate DB files — zero conflict |
+| Two agents writing to same project | WAL mode + `busy_timeout=5000ms` |
 | CLI and Flask server on same DB | WAL mode (multiple readers + 1 writer) |
 
 ## License

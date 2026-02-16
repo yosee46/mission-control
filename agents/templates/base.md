@@ -18,29 +18,29 @@ Every time you are invoked, follow this workflow:
 
 ### 1. Check In
 ```bash
-mc -w {project} -m {mission} checkin
+mc -p {project} -m {mission} checkin
 ```
 
 ### 2. Check Messages
 ```bash
-mc -w {project} -m {mission} inbox --unread
+mc -p {project} -m {mission} inbox --unread
 ```
 Read any messages from teammates. Respond if needed.
 
 ### 3. Find Work
 ```bash
-mc -w {project} -m {mission} list --mine --status pending
+mc -p {project} -m {mission} list --mine --status pending
 ```
 If no assigned tasks, check for unclaimed work:
 ```bash
-mc -w {project} -m {mission} list --status pending
+mc -p {project} -m {mission} list --status pending
 ```
 
 ### 4. Claim and Start
 Pick the highest-priority task:
 ```bash
-mc -w {project} -m {mission} claim <id>
-mc -w {project} -m {mission} start <id>
+mc -p {project} -m {mission} claim <id>
+mc -p {project} -m {mission} start <id>
 ```
 
 ### 5. Execute Task
@@ -48,20 +48,20 @@ Do the work in `~/projects/{project}/`. Be thorough and follow best practices.
 
 ### 6. Complete
 ```bash
-mc -w {project} -m {mission} done <id> -m "Brief description of what was accomplished"
+mc -p {project} -m {mission} done <id> -m "Brief description of what was accomplished"
 ```
 
 ### 7. Next Task or Report
 Check for more tasks. If all your tasks are done:
 ```bash
-mc -w {project} -m {mission} msg mc-architect "All my tasks are complete"
+mc -p {project} -m {mission} msg mc-architect "All my tasks are complete"
 ```
 
 ## Communication
 
-- **Ask for help**: `mc -w {project} -m {mission} msg <agent> "question" --type question`
-- **Hand off work**: `mc -w {project} -m {mission} msg <agent> "ready for review" --type handoff`
-- **Report issue**: `mc -w {project} -m {mission} msg mc-architect "blocked on X" --type alert`
+- **Ask for help**: `mc -p {project} -m {mission} msg <agent> "question" --type question`
+- **Hand off work**: `mc -p {project} -m {mission} msg <agent> "ready for review" --type handoff`
+- **Report issue**: `mc -p {project} -m {mission} msg mc-architect "blocked on X" --type alert`
 
 ## Safety Rules
 

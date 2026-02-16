@@ -88,8 +88,8 @@ else
   echo -e "  ${G}OK${N} — mc-architect registered"
 fi
 
-# ─── 6. Initialize default workspace ───
-echo -e "${C}[6/7] Initializing default MC workspace...${N}"
+# ─── 6. Initialize default project ───
+echo -e "${C}[6/7] Initializing default MC project...${N}"
 
 "$BIN_DIR/mc" init 2>/dev/null || true
 

@@ -1,12 +1,12 @@
 # Mission Control
 
-Shared coordination layer for OpenClaw agent fleets. Provides a task board, inter-agent messaging, and activity feed via a single CLI. Supports workspaces (physical DB isolation) and multi-mission (logical task isolation).
+Shared coordination layer for OpenClaw agent fleets. Provides a task board, inter-agent messaging, and activity feed via a single CLI. Supports projects (physical DB isolation) and multi-mission (logical task isolation).
 
 ## Setup
 
 Run `mc init` to create the database. Set your identity: `export MC_AGENT=your-name`
 
-For multiple projects, create separate workspaces: `mc workspace create my-project`
+For multiple projects, create separate projects: `mc project create my-project`
 
 ### OMOS (Orchestrated Team Setup)
 
@@ -16,7 +16,7 @@ For automated team creation, use the `setup_mission` tool:
 setup_mission <project> <mission> "<goal>" --roles role1,role2,...
 ```
 
-This creates: MC workspace + mission, openclaw agents with role-specific AGENTS.md, MC fleet registration, and cron jobs — all in one command.
+This creates: MC project + mission, openclaw agents with role-specific AGENTS.md, MC fleet registration, and cron jobs — all in one command.
 
 ## Operational Rhythm
 
@@ -40,11 +40,11 @@ Every agent should follow this pattern:
 | Finished | `mc done <id> -m "Result"` |
 | Need review | `mc msg <reviewer> "Ready" --task <id> --type handoff` |
 | Catching up | `mc feed --last 20` or `mc summary` |
-| New project | `mc workspace create project-name` |
+| New project | `mc project create project-name` |
 | Separate workstream | `mc mission create "feature-x" -d "Feature X work"` |
-| Work in specific context | `mc -w project -m feature-x list` |
+| Work in specific context | `mc -p project -m feature-x list` |
 | Build a team | `setup_mission project mission "goal" --roles researcher,coder,reviewer` |
-| Cleanup mission | `openclaw cron rm --name project-*` then archive mission |
+| Cleanup mission | `mc -p project -m mission mission complete` |
 
 ## Task Statuses
 
@@ -57,7 +57,7 @@ pending → claimed → in_progress → review → done
 
 ### Global Flags
 ```
-mc [-w workspace] [-m mission] <command> [args]
+mc [-p project] [-m mission] <command> [args]
 ```
 
 ### Tasks
@@ -91,24 +91,25 @@ mc feed [--last N] [--agent NAME]
 mc summary
 ```
 
-### Workspace
+### Project
 ```
-mc workspace create <name>
-mc workspace list
-mc workspace current
+mc project create <name>
+mc project list
+mc project current
 ```
 
 ### Mission
 ```
 mc mission create <name> [-d "description"]
 mc mission list
+mc mission complete
 mc mission archive <name>
 mc mission current
 ```
 
 ### Migration
 ```
-mc migrate    # Migrate legacy DB to default workspace
+mc migrate    # Migrate legacy DB to default project
 ```
 
 ## Environment Variables
@@ -116,6 +117,6 @@ mc migrate    # Migrate legacy DB to default workspace
 | Var | Default | Description |
 |-----|---------|-------------|
 | `MC_AGENT` | `$USER` | Agent identity |
-| `MC_WORKSPACE` | `default` | Workspace name |
+| `MC_PROJECT` | `default` | Project name (`MC_WORKSPACE` also accepted) |
 | `MC_MISSION` | `default` | Mission name |
-| `MC_DB` | (auto-resolved) | Direct DB path (overrides workspace) |
+| `MC_DB` | (auto-resolved) | Direct DB path (overrides project) |

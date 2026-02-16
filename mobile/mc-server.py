@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Mission Control Mobile Server v0.2 — Token auth + SSE + Workspace/Mission support"""
+"""Mission Control Mobile Server v0.2 — Token auth + SSE + Project/Mission support"""
 import os
 import sys
 import json
@@ -14,9 +14,9 @@ from flask import Flask, jsonify, request, Response, send_from_directory
 # ═══════════════════════════════════════════
 
 parser = argparse.ArgumentParser(description='Mission Control Mobile Server')
-parser.add_argument('--workspace', '-w',
-    default=os.environ.get('MC_WORKSPACE', 'default'),
-    help='Workspace name (default: $MC_WORKSPACE or "default")')
+parser.add_argument('--project', '-w',
+    default=os.environ.get('MC_PROJECT', os.environ.get('MC_WORKSPACE', 'default')),
+    help='Project name (default: $MC_PROJECT or "default")')
 parser.add_argument('--mission', '-m',
     default=os.environ.get('MC_MISSION', 'default'),
     help='Mission name (default: $MC_MISSION or "default")')
@@ -24,7 +24,7 @@ parser.add_argument('--port', '-p', type=int, default=3737,
     help='Server port (default: 3737)')
 parser.add_argument('--db',
     default=os.environ.get('MC_DB', ''),
-    help='Direct DB path (overrides workspace resolution)')
+    help='Direct DB path (overrides project resolution)')
 args = parser.parse_args()
 
 # ═══════════════════════════════════════════
@@ -36,16 +36,16 @@ TOKEN = secrets.token_urlsafe(16)
 
 if args.db:
     DB = args.db
-    WORKSPACE = '(custom)'
+    PROJECT = '(custom)'
 else:
-    WORKSPACE = args.workspace
-    DB = os.path.expanduser(f'~/.openclaw/workspaces/{WORKSPACE}/mission-control.db')
+    PROJECT = args.project
+    DB = os.path.expanduser(f'~/.openclaw/projects/{PROJECT}/mission-control.db')
 
 MISSION_NAME = args.mission
 
 if not os.path.exists(DB):
     print(f"Error: Database not found: {DB}", file=sys.stderr)
-    print(f"Run: mc init -w {WORKSPACE}", file=sys.stderr)
+    print(f"Run: mc init -p {PROJECT}", file=sys.stderr)
     sys.exit(1)
 
 # ═══════════════════════════════════════════
@@ -95,7 +95,7 @@ def index():
 
 @app.route('/api/info')
 def info():
-    """Return current workspace/mission context."""
+    """Return current project/mission context."""
     conn = get_db()
     mid = get_mission_id(conn)
     missions = conn.execute(
@@ -103,7 +103,7 @@ def info():
     ).fetchall()
     conn.close()
     return jsonify({
-        'workspace': WORKSPACE,
+        'project': PROJECT,
         'mission': MISSION_NAME,
         'mission_id': mid,
         'missions': [row_to_dict(m) for m in missions]
@@ -145,7 +145,7 @@ def board():
     return jsonify({
         'tasks': [row_to_dict(t) for t in tasks],
         'agents': [row_to_dict(a) for a in agents],
-        'workspace': WORKSPACE,
+        'project': PROJECT,
         'mission': MISSION_NAME,
         'timestamp': int(time.time() * 1000)
     })
@@ -250,7 +250,7 @@ if __name__ == '__main__':
     print(f"\n{'='*50}")
     print(f"  Mission Control Mobile Server v0.2")
     print(f"{'='*50}")
-    print(f"\n  Workspace: {WORKSPACE}")
+    print(f"\n  Project:   {PROJECT}")
     print(f"  Mission:   {MISSION_NAME}")
     print(f"  DB:        {DB}")
     print(f"\n  Local URL:")
