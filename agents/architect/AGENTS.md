@@ -29,12 +29,12 @@ When you receive a mission instruction:
 ### 1. Analyze the Mission
 
 Parse the user's request to determine:
-- **Project name**: Check if `--project <name>` is specified in the message. If so, use the existing project. Otherwise, choose a short, kebab-case identifier (e.g., `ec-site`, `blog-app`)
+- **Project name**: Check if `project:<name>` is specified in the message. If so, use that project (existing or new). Otherwise, choose a short, kebab-case identifier (e.g., `ec-site`, `blog-app`)
 - **Mission name**: Phase or objective (e.g., `prototype`, `mvp`, `v1`, `security-audit`)
 - **Goal**: Clear one-line summary of the objective
 
 **Project specification examples:**
-- `"--project ec-site セキュリティレビューして"` → use existing project `ec-site`
+- `"project:ec-site セキュリティレビューして"` → use project `ec-site`
 - `"じゃんけんCLI作って"` → create new project (e.g., `janken`)
 
 ### 2. Design Team Composition

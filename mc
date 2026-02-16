@@ -267,16 +267,30 @@ cmd_mission() {
       sql "UPDATE missions SET status='completed', updated_at=datetime('now') WHERE id=$MID;"
       echo -e "${G}[1/4] Mission archived${N}"
 
-      # 3. Remove cron jobs matching pattern
+      # 3. Remove cron jobs matching pattern (lookup id by name from JSON)
       echo -e "${C}[2/4] Removing cron jobs (${pattern}*)...${N}"
       local agents_list
       agents_list=$(sql "SELECT name FROM agents WHERE name LIKE '${pattern}%';")
       if [ -n "$agents_list" ]; then
+        local cron_json
+        cron_json=$(openclaw $oc_profile_flag cron list --json 2>/dev/null || echo '{"jobs":[]}')
         while IFS= read -r agent_name; do
           [ -z "$agent_name" ] && continue
-          openclaw $oc_profile_flag cron rm --name "$agent_name" 2>/dev/null && \
-            echo -e "  Removed cron: $agent_name" || \
+          local cron_id
+          cron_id=$(echo "$cron_json" | python3 -c "
+import sys, json
+data = json.load(sys.stdin)
+for job in data.get('jobs', []):
+    if job.get('name') == '$agent_name':
+        print(job['id'])
+        break" 2>/dev/null)
+          if [ -n "$cron_id" ]; then
+            openclaw $oc_profile_flag cron rm "$cron_id" 2>/dev/null && \
+              echo -e "  Removed cron: $agent_name ($cron_id)" || \
+              echo -e "  ${Y}Failed to remove cron: $agent_name${N}"
+          else
             echo -e "  ${Y}No cron found: $agent_name${N}"
+          fi
         done <<< "$agents_list"
       else
         echo "  (no matching agents)"
@@ -287,7 +301,7 @@ cmd_mission() {
       if [ -n "$agents_list" ]; then
         while IFS= read -r agent_name; do
           [ -z "$agent_name" ] && continue
-          openclaw $oc_profile_flag agents delete "$agent_name" 2>/dev/null && \
+          openclaw $oc_profile_flag agents delete "$agent_name" --force 2>/dev/null && \
             echo -e "  Removed agent: $agent_name" || \
             echo -e "  ${Y}Could not remove: $agent_name${N}"
         done <<< "$agents_list"
@@ -502,8 +516,12 @@ cmd_list() {
 cmd_claim() {
   ensure_mission_id
   local id="${1:?Usage: mc claim <id>}"
-  local current
+  local current status
   current=$(sql "SELECT owner FROM tasks WHERE id=$id AND mission_id=$MID;")
+  status=$(sql "SELECT status FROM tasks WHERE id=$id AND mission_id=$MID;")
+  if [[ "$status" == "blocked" ]]; then
+    echo -e "${R}#$id is blocked — resolve blockers first${N}"; return 1
+  fi
   if [[ -n "$current" && "$current" != "$AGENT" ]]; then
     echo -e "${R}Already claimed by $current${N}"; return 1
   fi
@@ -515,6 +533,11 @@ cmd_claim() {
 cmd_start() {
   ensure_mission_id
   local id="${1:?Usage: mc start <id>}"
+  local status
+  status=$(sql "SELECT status FROM tasks WHERE id=$id AND mission_id=$MID;")
+  if [[ "$status" == "blocked" ]]; then
+    echo -e "${R}#$id is blocked — resolve blockers first${N}"; return 1
+  fi
   sql "UPDATE tasks SET status='in_progress', updated_at=datetime('now') WHERE id=$id AND mission_id=$MID AND owner='$AGENT';"
   sql "UPDATE agents SET status='busy' WHERE name='$AGENT';"
   log_activity "task_started" "task" "$id" ""
@@ -531,6 +554,29 @@ cmd_done() {
   log_activity "task_completed" "task" "$id" "$(echo "$note" | sed "s/'/''/g")"
   [[ -n "$note" ]] && sql "INSERT INTO messages(mission_id,from_agent,task_id,body,msg_type) VALUES($MID,'$AGENT',$id,'$(echo "$note" | sed "s/'/''/g")','status');"
   echo -e "${G}✓ Done #$id${N}${note:+ — $note}"
+
+  # Unblock tasks that were blocked by this task
+  local blocked_tasks
+  blocked_tasks=$(sql "SELECT id, blocked_by FROM tasks WHERE status='blocked' AND mission_id=$MID AND blocked_by LIKE '%$id%';")
+  while IFS='|' read -r tid tblocked; do
+    [[ -z "$tid" ]] && continue
+    # Remove completed task id from blocked_by JSON array
+    local new_blocked
+    new_blocked=$(echo "$tblocked" | python3 -c "
+import sys, json
+try:
+    arr = json.loads(sys.stdin.read().strip())
+    arr = [x for x in arr if x != $id]
+    print(json.dumps(arr))
+except: print('[]')" 2>/dev/null || echo "[]")
+    sql "UPDATE tasks SET blocked_by='$new_blocked', updated_at=datetime('now') WHERE id=$tid AND mission_id=$MID;"
+    # If no more blockers, set to pending
+    if [[ "$new_blocked" == "[]" ]]; then
+      sql "UPDATE tasks SET status='pending' WHERE id=$tid AND mission_id=$MID;"
+      log_activity "task_unblocked" "task" "$tid" "unblocked by #$id completion"
+      echo -e "${C}↳ #$tid unblocked${N}"
+    fi
+  done <<< "$blocked_tasks"
 }
 
 cmd_block() {

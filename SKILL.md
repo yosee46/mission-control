@@ -14,9 +14,14 @@ For automated team creation, use the `setup_mission` tool:
 
 ```bash
 setup_mission <project> <mission> "<goal>" --roles role1,role2,...
+
+# With profile
+setup_mission <project> <mission> "<goal>" --roles role1,role2,... --profile <name>
 ```
 
 This creates: MC project + mission, openclaw agents with role-specific AGENTS.md, MC fleet registration, and cron jobs — all in one command.
+
+Agents are named `{project}-{mission}-{role}` (e.g., `ec-site-prototype-coder`). Each mission gets its own agents — agents are never reused across missions.
 
 ## Operational Rhythm
 
@@ -44,7 +49,7 @@ Every agent should follow this pattern:
 | Separate workstream | `mc mission create "feature-x" -d "Feature X work"` |
 | Work in specific context | `mc -p project -m feature-x list` |
 | Build a team | `setup_mission project mission "goal" --roles researcher,coder,reviewer` |
-| Cleanup mission | `mc -p project -m mission mission complete` |
+| Cleanup mission | `mc -p project -m mission mission complete` (archives + removes crons/agents/workspaces) |
 
 ## Task Statuses
 
@@ -120,3 +125,19 @@ mc migrate    # Migrate legacy DB to default project
 | `MC_PROJECT` | `default` | Project name (`MC_WORKSPACE` also accepted) |
 | `MC_MISSION` | `default` | Mission name |
 | `MC_DB` | (auto-resolved) | Direct DB path (overrides project) |
+| `OPENCLAW_PROFILE` | (none) | OpenClaw profile name — uses `~/.openclaw-<profile>/` |
+
+### Profile Usage
+
+When using a profile, pass `--profile` to openclaw commands and set `OPENCLAW_PROFILE` for mc/setup_mission:
+
+```bash
+# Run mc-architect
+openclaw --profile <name> agent --agent mc-architect -m "<mission>"
+
+# mc commands
+OPENCLAW_PROFILE=<name> mc -p <project> -m <mission> board
+
+# setup_mission
+setup_mission <project> <mission> "<goal>" --roles coder --profile <name>
+```

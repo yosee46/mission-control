@@ -57,19 +57,20 @@ This installs:
 
 #### Profile Support
 
-If you use `openclaw --profile <name>`, set `OPENCLAW_PROFILE` to use a profile-specific directory (`~/.openclaw-<profile>/`):
+If you use `openclaw --profile <name>`, pass `--profile` to openclaw commands and set `OPENCLAW_PROFILE` for mc/setup_mission:
 
 ```bash
 # Install with profile
 OPENCLAW_PROFILE=mission-control bash install.sh
 
+# Run mc-architect with profile
+openclaw --profile mission-control agent --agent mc-architect -m "Build EC site"
+
 # Setup mission with profile
-OPENCLAW_PROFILE=mission-control setup_mission ec-site prototype "Build EC" --roles coder
-# Or use --profile flag
 setup_mission ec-site prototype "Build EC" --roles coder --profile mission-control
 
 # mc commands with profile
-OPENCLAW_PROFILE=mission-control mc board
+OPENCLAW_PROFILE=mission-control mc -p ec-site -m prototype board
 ```
 
 ## Quick Start
@@ -114,6 +115,10 @@ One instruction, full autonomous team:
 ```bash
 # Tell the architect what you want
 openclaw agent --agent mc-architect -m \
+  "Build a Django EC site prototype with auth, product list, and cart"
+
+# With profile
+openclaw --profile mission-control agent --agent mc-architect -m \
   "Build a Django EC site prototype with auth, product list, and cart"
 ```
 
