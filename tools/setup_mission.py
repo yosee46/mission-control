@@ -17,7 +17,8 @@ import subprocess
 import sys
 from pathlib import Path
 
-CONFIG_DIR = Path.home() / ".openclaw"
+_PROFILE = os.environ.get("OPENCLAW_PROFILE", "")
+CONFIG_DIR = Path.home() / f".openclaw-{_PROFILE}" if _PROFILE else Path.home() / ".openclaw"
 TEMPLATE_DIR = CONFIG_DIR / "mc-templates"
 PROJECTS_DIR = Path.home() / "projects"
 
@@ -126,14 +127,15 @@ def generate_agents_md(
     )
 
 
-def generate_cron_message(agent_id: str, project: str, mission: str) -> str:
+def generate_cron_message(agent_id: str, project: str, mission: str, profile_env: str = "") -> str:
     """Generate the cron invocation message for an agent."""
+    mc = f"{profile_env}mc" if profile_env else "mc"
     return (
         f"You are {agent_id}. Read your AGENTS.md, then execute your workflow: "
-        f"mc -w {project} -m {mission} checkin && "
-        f"mc -w {project} -m {mission} list --mine --status pending && "
+        f"{mc} -w {project} -m {mission} checkin && "
+        f"{mc} -w {project} -m {mission} list --mine --status pending && "
         f"claim and work on your highest-priority task. "
-        f"If no tasks, check mc -w {project} -m {mission} list --status pending for unclaimed work."
+        f"If no tasks, check {mc} -w {project} -m {mission} list --status pending for unclaimed work."
     )
 
 
@@ -157,11 +159,28 @@ def main():
         help="Cron schedule for agents (default: every 10 minutes)"
     )
     parser.add_argument(
+        "--profile",
+        help="OpenClaw profile name (overrides OPENCLAW_PROFILE env var)"
+    )
+    parser.add_argument(
         "--dry-run", action="store_true",
         help="Show what would be done without executing"
     )
 
     args = parser.parse_args()
+
+    # Resolve profile: CLI flag > env var
+    profile = args.profile or os.environ.get("OPENCLAW_PROFILE", "")
+    oc_profile_flag = f"--profile {profile}" if profile else ""
+    profile_env = f"OPENCLAW_PROFILE={profile} " if profile else ""
+
+    # Recalculate CONFIG_DIR based on resolved profile
+    global CONFIG_DIR, TEMPLATE_DIR
+    if profile:
+        CONFIG_DIR = Path.home() / f".openclaw-{profile}"
+    else:
+        CONFIG_DIR = Path.home() / ".openclaw"
+    TEMPLATE_DIR = CONFIG_DIR / "mc-templates"
 
     project = args.project
     mission = args.mission
@@ -179,6 +198,8 @@ def main():
     print(f"  Mission:  {mission}")
     print(f"  Goal:     {goal}")
     print(f"  Roles:    {', '.join(roles)}")
+    if profile:
+        print(f"  Profile:  {profile}")
     print(f"  Cron:     {cron_schedule}")
     print()
 
@@ -188,14 +209,14 @@ def main():
     # ─── Step 1: Create MC workspace ───
     print(f"[1/5] Creating MC workspace '{project}'...")
     if not dry_run:
-        run(f'mc -w {project} init')
+        run(f'{profile_env}mc -w {project} init')
     print(f"  OK")
 
     # ─── Step 2: Create mission ───
     print(f"[2/5] Creating mission '{mission}'...")
     if not dry_run:
         escaped_goal = goal.replace("'", "'\\''")
-        run(f"mc -w {project} mission create {mission} -d '{escaped_goal}'")
+        run(f"{profile_env}mc -w {project} mission create {mission} -d '{escaped_goal}'")
     print(f"  OK")
 
     # ─── Step 3: Create project directory ───
@@ -238,9 +259,9 @@ def main():
         print(f"  Registering openclaw agent: {agent_id}")
         if not dry_run:
             run(
-                f"openclaw agents add {agent_id} "
+                f"openclaw {oc_profile_flag} agents add {agent_id} "
                 f"--workspace {ws_dir} "
-                f"--non-interactive",
+                f"--non-interactive".strip(),
                 check=False,
             )
 
@@ -248,22 +269,22 @@ def main():
         print(f"  Registering in MC fleet")
         if not dry_run:
             run(
-                f"MC_AGENT={agent_id} mc -w {project} register {agent_id} --role {role}",
+                f"{profile_env}MC_AGENT={agent_id} mc -w {project} register {agent_id} --role {role}",
                 check=False,
             )
 
         # e. Add cron job
-        cron_msg = generate_cron_message(agent_id, project, mission)
+        cron_msg = generate_cron_message(agent_id, project, mission, profile_env)
         print(f"  Adding cron job")
         if not dry_run:
             escaped_msg = cron_msg.replace('"', '\\"')
             run(
-                f'openclaw cron add '
+                f'openclaw {oc_profile_flag} cron add '
                 f'--agent {agent_id} '
                 f'--name {agent_id} '
                 f'--cron "{cron_schedule}" '
                 f'--session isolated '
-                f'--message "{escaped_msg}"',
+                f'--message "{escaped_msg}"'.strip(),
                 check=False,
             )
 
@@ -271,12 +292,15 @@ def main():
         print(f"  OK — {agent_id} ready")
 
     # ─── Step 5: Summary ───
+    mc_prefix = f"{profile_env}mc" if profile_env else "mc"
     print(f"\n[5/5] Summary")
     print(f"")
     print(f"═══ Team Ready ═══")
-    print(f"  Workspace:  mc -w {project}")
-    print(f"  Mission:    mc -w {project} -m {mission}")
+    print(f"  Workspace:  {mc_prefix} -w {project}")
+    print(f"  Mission:    {mc_prefix} -w {project} -m {mission}")
     print(f"  Project:    {project_dir}/")
+    if profile:
+        print(f"  Profile:    {profile}")
     print(f"  Agents:     {len(agents_created)}")
     for a in agents_created:
         print(f"    - {a}")
@@ -284,11 +308,11 @@ def main():
     print(f"Next: Use mc to add tasks for the team:")
     for role in roles:
         agent_id = f"{project}-{role}"
-        print(f'  mc -w {project} -m {mission} add "Task description" --for {agent_id}')
+        print(f'  {mc_prefix} -w {project} -m {mission} add "Task description" --for {agent_id}')
     print(f"")
     print(f"Monitor:")
-    print(f"  mc -w {project} -m {mission} board")
-    print(f"  mc -w {project} fleet")
+    print(f"  {mc_prefix} -w {project} -m {mission} board")
+    print(f"  {mc_prefix} -w {project} fleet")
 
 
 if __name__ == "__main__":

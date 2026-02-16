@@ -55,6 +55,23 @@ This installs:
 - `~/.openclaw/mc-templates/` — Agent role templates
 - `mc-architect` — Lead architect agent (auto-registered)
 
+#### Profile Support
+
+If you use `openclaw --profile <name>`, set `OPENCLAW_PROFILE` to use a profile-specific directory (`~/.openclaw-<profile>/`):
+
+```bash
+# Install with profile
+OPENCLAW_PROFILE=mission-control bash install.sh
+
+# Setup mission with profile
+OPENCLAW_PROFILE=mission-control setup_mission ec-site prototype "Build EC" --roles coder
+# Or use --profile flag
+setup_mission ec-site prototype "Build EC" --roles coder --profile mission-control
+
+# mc commands with profile
+OPENCLAW_PROFILE=mission-control mc board
+```
+
 ## Quick Start
 
 ```bash
@@ -138,13 +155,13 @@ mc -w ec-site fleet
 ### Mission Cleanup
 
 ```bash
-# Stop cron jobs
+# Stop cron jobs (add --profile <name> if using a profile)
 openclaw cron rm --name ec-site-*
 
 # Remove agents
 openclaw agents delete ec-site-*
 
-# Archive mission
+# Archive mission (add OPENCLAW_PROFILE=<name> prefix if using a profile)
 mc -w ec-site mission archive prototype
 ```
 
@@ -153,7 +170,8 @@ mc -w ec-site mission archive prototype
 Workspaces provide **physical DB isolation** — each workspace has its own SQLite file, so parallel projects never conflict. Missions provide **logical task isolation** within a workspace.
 
 ```
-~/.openclaw/
+~/.openclaw/                             # Default (no profile)
+~/.openclaw-<profile>/                   # With OPENCLAW_PROFILE=<profile>
 ├── config.json
 ├── mc-templates/                        # Agent role templates
 │   ├── base.md
@@ -278,6 +296,7 @@ MC_WORKSPACE=my-saas MC_MISSION=v1-release python mobile/mc-server.py
 | `MC_WORKSPACE` | `default` | Workspace name |
 | `MC_MISSION` | `default` | Mission name |
 | `MC_DB` | (auto-resolved) | Direct DB path (overrides workspace) |
+| `OPENCLAW_PROFILE` | (none) | OpenClaw profile name — uses `~/.openclaw-<profile>/` |
 
 ## Concurrency Safety
 

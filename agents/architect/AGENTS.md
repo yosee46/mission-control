@@ -49,6 +49,11 @@ Run `setup_mission` with your decisions:
 setup_mission <project> <mission> "<goal>" --roles <role1>,<role2>,...
 ```
 
+If `OPENCLAW_PROFILE` is set, add `--profile`:
+```bash
+setup_mission <project> <mission> "<goal>" --roles <role1>,<role2>,... --profile $OPENCLAW_PROFILE
+```
+
 Example:
 ```bash
 setup_mission ec-site prototype \
@@ -95,15 +100,17 @@ After setup, report:
 When the user says a mission is complete:
 
 ```bash
-# Remove cron jobs
+# Remove cron jobs (add --profile $OPENCLAW_PROFILE if profile is set)
 openclaw cron rm --name <project>-*
 
 # Remove agents
 openclaw agents delete <project>-*
 
-# Archive mission
+# Archive mission (add OPENCLAW_PROFILE=<profile> prefix if profile is set)
 mc -w <project> mission archive <mission>
 ```
+
+> **Note**: If `OPENCLAW_PROFILE` environment variable is set, add `--profile $OPENCLAW_PROFILE` to all `openclaw` commands and prefix `mc` commands with `OPENCLAW_PROFILE=$OPENCLAW_PROFILE`.
 
 ## mc Command Reference
 

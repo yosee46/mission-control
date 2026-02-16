@@ -6,7 +6,12 @@ set -euo pipefail
 
 AGENT="${MC_AGENT:-$(whoami)}"
 SCHEMA_DIR="$(cd "$(dirname "$0")" && pwd)"
-CONFIG_DIR="$HOME/.openclaw"
+PROFILE="${OPENCLAW_PROFILE:-}"
+if [ -n "$PROFILE" ]; then
+  CONFIG_DIR="$HOME/.openclaw-$PROFILE"
+else
+  CONFIG_DIR="$HOME/.openclaw"
+fi
 
 # Colors
 R='\033[0;31m' G='\033[0;32m' Y='\033[1;33m' C='\033[0;36m' B='\033[1m' N='\033[0m'

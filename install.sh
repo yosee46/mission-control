@@ -6,7 +6,14 @@ R='\033[0;31m' G='\033[0;32m' Y='\033[1;33m' C='\033[0;36m' B='\033[1m' N='\033[
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 BIN_DIR="$HOME/bin"
-CONFIG_DIR="$HOME/.openclaw"
+PROFILE="${OPENCLAW_PROFILE:-}"
+if [ -n "$PROFILE" ]; then
+  CONFIG_DIR="$HOME/.openclaw-$PROFILE"
+  OC_PROFILE_FLAG="--profile $PROFILE"
+else
+  CONFIG_DIR="$HOME/.openclaw"
+  OC_PROFILE_FLAG=""
+fi
 TEMPLATE_DIR="$CONFIG_DIR/mc-templates"
 ARCHITECT_WS="$CONFIG_DIR/workspace-mc-architect"
 
@@ -69,14 +76,14 @@ echo -e "${C}[5/7] Registering mc-architect agent...${N}"
 mkdir -p "$ARCHITECT_WS"
 cp "$SCRIPT_DIR/agents/architect/AGENTS.md" "$ARCHITECT_WS/AGENTS.md"
 
-if openclaw agents list 2>/dev/null | grep -q "mc-architect"; then
+if openclaw $OC_PROFILE_FLAG agents list 2>/dev/null | grep -q "mc-architect"; then
   echo -e "  ${Y}mc-architect already registered${N}"
 else
-  openclaw agents add mc-architect \
+  openclaw $OC_PROFILE_FLAG agents add mc-architect \
     --workspace "$ARCHITECT_WS" \
     --non-interactive 2>/dev/null || {
     echo -e "  ${Y}Could not auto-register mc-architect.${N}"
-    echo -e "  Register manually: openclaw agents add mc-architect --workspace $ARCHITECT_WS"
+    echo -e "  Register manually: openclaw${OC_PROFILE_FLAG:+ $OC_PROFILE_FLAG} agents add mc-architect --workspace $ARCHITECT_WS"
   }
   echo -e "  ${G}OK${N} — mc-architect registered"
 fi
@@ -101,5 +108,9 @@ echo -e "  Architect:      ${C}$ARCHITECT_WS/AGENTS.md${N}"
 echo ""
 echo -e "${B}Next steps:${N}"
 echo -e "  1. Ensure ${C}export PATH=\"\$HOME/bin:\$PATH\"${N} is in your shell profile"
-echo -e "  2. Issue a mission:  ${C}openclaw agent --agent mc-architect -m \"<your mission>\"${N}"
+if [ -n "$OC_PROFILE_FLAG" ]; then
+  echo -e "  2. Issue a mission:  ${C}openclaw $OC_PROFILE_FLAG agent --agent mc-architect -m \"<your mission>\"${N}"
+else
+  echo -e "  2. Issue a mission:  ${C}openclaw agent --agent mc-architect -m \"<your mission>\"${N}"
+fi
 echo ""
