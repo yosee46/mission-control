@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Mission Control Mobile Server v0.2 — Token auth + SSE + Project/Mission support"""
+"""Mission Control Mobile Server v0.3 — Token auth + SSE + Project/Mission support"""
 import os
 import sys
 import json
@@ -117,8 +117,15 @@ def board():
         conn.close()
         return jsonify({'error': f'Mission "{MISSION_NAME}" not found'}), 404
 
+    # Get mission status
+    mission_row = conn.execute(
+        'SELECT status, user_instructions FROM missions WHERE id = ?', (mid,)
+    ).fetchone()
+    mission_status = row_to_dict(mission_row) if mission_row else {}
+
     tasks = conn.execute('''
         SELECT id, subject, description, status, owner, priority,
+               task_type, scheduled_at,
                created_at, updated_at, claimed_at, completed_at
         FROM tasks
         WHERE mission_id = ?
@@ -147,6 +154,8 @@ def board():
         'agents': [row_to_dict(a) for a in agents],
         'project': PROJECT,
         'mission': MISSION_NAME,
+        'mission_status': mission_status.get('status', 'active'),
+        'user_instructions': mission_status.get('user_instructions'),
         'timestamp': int(time.time() * 1000)
     })
 

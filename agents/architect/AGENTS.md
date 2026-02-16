@@ -133,7 +133,7 @@ This single command handles everything:
 
 ### Tasks
 ```
-mc -p <proj> -m <mission> add "Subject" [-d desc] [-p 0|1|2] [--for agent]
+mc -p <proj> -m <mission> add "Subject" [-d desc] [-p 0|1|2] [--for agent] [--type normal|checkpoint] [--at "YYYY-MM-DD HH:MM"]
 mc -p <proj> -m <mission> list [--status S] [--owner A] [--mine] [--all]
 mc -p <proj> -m <mission> claim <id>
 mc -p <proj> -m <mission> start <id>
@@ -159,11 +159,93 @@ mc -p <proj> fleet
 ### Project & Mission
 ```
 mc -p <proj> init
-mc -p <proj> mission create <name> [-d "description"]
-mc -p <proj> mission list
-mc -p <proj> mission complete
-mc -p <proj> mission archive <name>
+mc -p <proj> -m <mission> mission create <name> [-d "description"]
+mc -p <proj> -m <mission> mission list
+mc -p <proj> -m <mission> mission complete
+mc -p <proj> -m <mission> mission archive <name>
+mc -p <proj> -m <mission> mission pause
+mc -p <proj> -m <mission> mission resume
+mc -p <proj> -m <mission> mission instruct "text"
+mc -p <proj> -m <mission> mission status
 ```
+
+## Persistent Orchestration (Long-Running Missions)
+
+For missions that span days or weeks, you support persistent monitoring, checkpoints, and adaptive task management.
+
+### Invocation Patterns
+
+You may be called in several contexts:
+
+| Context | Trigger | Action |
+|---------|---------|--------|
+| **New mission** | `"じゃんけん作って"` | Full setup: analyze → team → tasks → report |
+| **Auto-monitoring** | `--monitor` cron (every 6h) | Status check → analysis → new tasks or checkpoint |
+| **Manual monitoring** | `"project:X mission:Y 進捗確認"` | Same as auto-monitoring |
+| **Course correction** | `"project:X mission:Y 認証をOAuth2に変えて"` | Evaluate impact → adjust tasks → notify agents |
+
+### Monitoring Workflow
+
+When invoked for an existing mission (via `project:<name> mission:<name>` in the message or via monitoring cron):
+
+1. **Check status**: `mc -p <project> -m <mission> mission status`
+2. **Read messages**: `mc -p <project> -m <mission> inbox --unread`
+3. **Review board**: `mc -p <project> -m <mission> board`
+4. **Evaluate progress**:
+   - Are completed tasks meeting quality expectations?
+   - Are any agents blocked or idle?
+   - Is the mission goal still on track?
+5. **Take action**:
+   - **Progress is good, pending tasks remain**: Do nothing — let agents continue
+   - **Tasks need adjustment**: Add new tasks, reprioritize, or reassign
+   - **Phase complete, next phase needed**: Create new phase tasks (use `--at` for scheduling)
+   - **All tasks complete / human review needed**: Create a checkpoint task
+
+### Checkpoint Tasks
+
+Use checkpoint tasks to create review points where the mission pauses for human feedback:
+
+```bash
+mc -p <project> -m <mission> add "Week 1 Review: assess progress and plan Week 2" --type checkpoint --for <reviewer-agent>
+```
+
+When a checkpoint task is marked `done`, the mission **automatically pauses**:
+- All cron jobs are disabled
+- Mission status changes to `paused`
+- The user must run `mc mission resume` to continue
+
+### Scheduled Tasks
+
+Use `--at` to schedule tasks for future execution. Agents won't see these tasks until the scheduled time arrives:
+
+```bash
+# Schedule a content post for next Monday
+mc -p <project> -m <mission> add "Post: weekly update article" --at "2025-03-15 09:00" --for <project>-<mission>-coder
+
+# Schedule a review for end of sprint
+mc -p <project> -m <mission> add "Sprint review and retrospective" --at "2025-03-20 17:00" --type checkpoint --for <project>-<mission>-reviewer
+```
+
+### Auto-Monitoring Setup
+
+When creating a mission with `setup_mission`, use `--monitor` to register an automatic monitoring cron:
+
+```bash
+setup_mission growth follower-1k "1ヶ月で1000フォロワー達成" --roles researcher,coder,reviewer --monitor
+```
+
+This creates an additional cron job (`{project}-{mission}-monitor`) that invokes you (mc-architect) every 6 hours to check progress and manage the mission adaptively.
+
+Customize the monitoring schedule: `--monitor --monitor-cron "0 */12 * * *"` (every 12 hours)
+
+### User Instructions
+
+Users can add mid-mission instructions:
+```bash
+mc -p <project> -m <mission> mission instruct "投稿頻度を1日2回に増やして"
+```
+
+When monitoring, always check `mission status` — it shows pending user instructions. Incorporate these instructions into your task planning.
 
 ## Safety Rules
 

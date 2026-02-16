@@ -1,6 +1,6 @@
-# Mission Control
+# Mission Control v0.3
 
-Shared coordination layer for OpenClaw agent fleets. Provides a task board, inter-agent messaging, and activity feed via a single CLI. Supports projects (physical DB isolation) and multi-mission (logical task isolation).
+Shared coordination layer for OpenClaw agent fleets. Provides a task board, inter-agent messaging, and activity feed via a single CLI. Supports projects (physical DB isolation), multi-mission (logical task isolation), and persistent orchestration for long-running missions.
 
 ## Setup
 
@@ -49,6 +49,13 @@ Every agent should follow this pattern:
 | Separate workstream | `mc mission create "feature-x" -d "Feature X work"` |
 | Work in specific context | `mc -p project -m feature-x list` |
 | Build a team | `setup_mission project mission "goal" --roles researcher,coder,reviewer` |
+| Long-running mission | `setup_mission project mission "goal" --roles coder --monitor` (adds architect monitoring) |
+| Pause mission | `mc -p project -m mission mission pause` (pauses + disables crons) |
+| Resume mission | `mc -p project -m mission mission resume` (resumes + enables crons) |
+| Mid-mission instruction | `mc -p project -m mission mission instruct "change direction"` |
+| Check progress | `mc -p project -m mission mission status` |
+| Schedule future task | `mc add "Task" --at "2025-04-01 09:00" --for agent` |
+| Create checkpoint | `mc add "Review" --type checkpoint --for reviewer` (auto-pauses when done) |
 | Cleanup mission | `mc -p project -m mission mission complete` (archives + removes crons/agents/workspaces) |
 
 ## Task Statuses
@@ -67,7 +74,7 @@ mc [-p project] [-m mission] <command> [args]
 
 ### Tasks
 ```
-mc add "Subject" [-d "description"] [-p 0|1|2] [--for agent]
+mc add "Subject" [-d "description"] [-p 0|1|2] [--for agent] [--type normal|checkpoint] [--at "YYYY-MM-DD HH:MM"]
 mc list [--status STATUS] [--owner AGENT] [--mine] [--all]
 mc claim <id>
 mc start <id>
@@ -109,6 +116,10 @@ mc mission create <name> [-d "description"]
 mc mission list
 mc mission complete
 mc mission archive <name>
+mc mission pause                                Pause mission + disable crons
+mc mission resume                               Resume mission + enable crons
+mc mission instruct "text"                      Set user instructions for agents
+mc mission status                               Show mission status & progress
 mc mission current
 ```
 

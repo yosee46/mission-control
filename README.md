@@ -2,7 +2,7 @@
 
 Shared coordination layer for [OpenClaw](https://github.com/openclaw/openclaw) agent fleets. Task board, inter-agent messaging, and activity feed — all via CLI.
 
-**Zero dependencies.** Just bash + sqlite3 (pre-installed on every Linux/macOS).
+**Zero dependencies.** Just bash + sqlite3 (pre-installed on every Linux/macOS). Supports persistent orchestration for long-running missions with checkpoints, scheduling, and adaptive monitoring.
 
 ```
 mc init && mc register jarvis --role lead && mc add "Research competitors"
@@ -164,6 +164,51 @@ mc -p ec-site fleet
 mc -p ec-site -m prototype mission complete
 ```
 
+## Long-Running Missions
+
+For missions spanning days or weeks, Mission Control supports persistent orchestration:
+
+### Auto-Monitoring
+
+```bash
+# Create mission with architect monitoring (checks every 6h)
+setup_mission growth follower-1k "1ヶ月でフォロワー1000人達成" \
+  --roles researcher,coder,reviewer --monitor
+
+# Custom monitoring schedule
+setup_mission growth follower-1k "..." --roles coder --monitor --monitor-cron "0 */12 * * *"
+```
+
+The architect agent periodically reviews progress, creates new tasks, and adjusts the plan.
+
+### Checkpoints
+
+```bash
+# Create a checkpoint — mission auto-pauses when this task completes
+mc -p growth -m follower-1k add "Week 1 Review" --type checkpoint --for growth-follower-1k-reviewer
+```
+
+### Scheduled Tasks
+
+```bash
+# Schedule a task for future execution (hidden until then)
+mc -p growth -m follower-1k add "Post weekly update" --at "2025-04-01 09:00" --for growth-follower-1k-coder
+```
+
+### Pause / Resume
+
+```bash
+mc -p growth -m follower-1k mission pause     # Pause + disable all crons
+mc -p growth -m follower-1k mission resume    # Resume + enable all crons
+```
+
+### Mid-Mission Instructions
+
+```bash
+mc -p growth -m follower-1k mission instruct "投稿頻度を1日2回に増やして"
+mc -p growth -m follower-1k mission status    # Shows instructions + progress
+```
+
 ## Projects & Missions
 
 Projects provide **physical DB isolation** — each project has its own SQLite file, so parallel projects never conflict. Missions provide **logical task isolation** within a project.
@@ -237,7 +282,7 @@ After completing work, run: mc done <id> -m "what I did"
 | Command | Description |
 |---------|-------------|
 | `mc init` | Create database |
-| `mc add "Subject"` | Create task |
+| `mc add "Subject" [--type checkpoint] [--at "datetime"]` | Create task |
 | `mc list [--all]` | List tasks (--all includes done) |
 | `mc claim <id>` | Claim task |
 | `mc start <id>` | Begin work |
@@ -254,7 +299,11 @@ After completing work, run: mc done <id> -m "what I did"
 | `mc mission list` | List missions |
 | `mc mission complete` | Complete + cleanup agents/crons |
 | `mc mission archive <name>` | Archive mission |
-| `mc migrate` | Migrate legacy DB |
+| `mc mission pause` | Pause mission + disable crons |
+| `mc mission resume` | Resume mission + enable crons |
+| `mc mission instruct "text"` | Set user instructions |
+| `mc mission status` | Show status & progress |
+| `mc migrate` | Migrate DB schema |
 
 ## Architecture
 

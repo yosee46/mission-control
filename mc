@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Mission Control v0.2 — Coordination layer for OpenClaw agent fleets
+# Mission Control v0.3 — Coordination layer for OpenClaw agent fleets
 # Zero dependencies beyond bash + sqlite3
 # Supports projects (physical DB isolation) and multi-mission (logical isolation)
 set -euo pipefail
@@ -328,13 +328,129 @@ for job in data.get('jobs', []):
       echo ""
       echo -e "${G}Mission '$MISSION_NAME' completed and cleaned up${N}"
       ;;
+    pause)
+      ensure_mission_id
+      sql "UPDATE missions SET status='paused', updated_at=datetime('now') WHERE id=$MID;"
+      log_activity "mission_paused" "mission" "$MID" "manual pause"
+
+      # Disable crons for this mission's agents
+      local pattern="$PROJECT-$MISSION_NAME-"
+      local oc_profile_flag=""
+      [ -n "${OPENCLAW_PROFILE:-}" ] && oc_profile_flag="--profile $OPENCLAW_PROFILE"
+      local cron_json
+      cron_json=$(openclaw $oc_profile_flag cron list --json 2>/dev/null || echo '{"jobs":[]}')
+      local cron_ids
+      cron_ids=$(echo "$cron_json" | python3 -c "
+import sys, json
+data = json.load(sys.stdin)
+for job in data.get('jobs', []):
+    if job.get('name','').startswith('$pattern'):
+        print(job['id'])" 2>/dev/null)
+      while IFS= read -r cid; do
+        [[ -z "$cid" ]] && continue
+        openclaw $oc_profile_flag cron disable "$cid" 2>/dev/null && \
+          echo -e "  Disabled cron: $cid" || true
+      done <<< "$cron_ids"
+
+      echo -e "${Y}⏸ Mission '$MISSION_NAME' paused${N}"
+      ;;
+    resume)
+      ensure_mission_id
+      sql "UPDATE missions SET status='active', updated_at=datetime('now') WHERE id=$MID;"
+      log_activity "mission_resumed" "mission" "$MID" "resumed"
+
+      # Enable crons for this mission's agents
+      local pattern="$PROJECT-$MISSION_NAME-"
+      local oc_profile_flag=""
+      [ -n "${OPENCLAW_PROFILE:-}" ] && oc_profile_flag="--profile $OPENCLAW_PROFILE"
+      local cron_json
+      cron_json=$(openclaw $oc_profile_flag cron list --json 2>/dev/null || echo '{"jobs":[]}')
+      local cron_ids
+      cron_ids=$(echo "$cron_json" | python3 -c "
+import sys, json
+data = json.load(sys.stdin)
+for job in data.get('jobs', []):
+    if job.get('name','').startswith('$pattern'):
+        print(job['id'])" 2>/dev/null)
+      while IFS= read -r cid; do
+        [[ -z "$cid" ]] && continue
+        openclaw $oc_profile_flag cron enable "$cid" 2>/dev/null && \
+          echo -e "  Enabled cron: $cid" || true
+      done <<< "$cron_ids"
+
+      # Show user instructions if any
+      local instructions
+      instructions=$(sql "SELECT user_instructions FROM missions WHERE id=$MID;")
+      if [[ -n "$instructions" ]]; then
+        echo -e "${C}📋 User instructions:${N} $instructions"
+      fi
+
+      echo -e "${G}▶ Mission '$MISSION_NAME' resumed${N}"
+      ;;
+    instruct)
+      ensure_mission_id
+      local text="${1:?Usage: mc mission instruct \"text\"}"
+      sql "UPDATE missions SET user_instructions='$(echo "$text" | sed "s/'/''/g")', updated_at=datetime('now') WHERE id=$MID;"
+      # Also record as a message to mc-architect
+      sql "INSERT INTO messages(mission_id,from_agent,to_agent,body,msg_type)
+        VALUES($MID,'$AGENT','mc-architect','$(echo "$text" | sed "s/'/''/g")','alert');"
+      log_activity "mission_instruct" "mission" "$MID" "$(echo "$text" | sed "s/'/''/g")"
+      echo -e "${G}📋 Instructions saved${N}: $text"
+      ;;
+    status)
+      ensure_mission_id
+      local mrow
+      mrow=$(sql "SELECT name || '|' || status || '|' || COALESCE(user_instructions,'') || '|' || COALESCE(description,'') FROM missions WHERE id=$MID;")
+      local mname mstatus minstr mdesc
+      IFS='|' read -r mname mstatus minstr mdesc <<< "$mrow"
+
+      echo -e "${B}═══ MISSION STATUS ═══${N}"
+      echo -e "  Project:     ${C}$PROJECT${N}"
+      echo -e "  Mission:     ${C}$mname${N}"
+      echo -e "  Description: ${mdesc:--}"
+      case "$mstatus" in
+        active)    echo -e "  Status:      ${G}▶ ACTIVE${N}" ;;
+        paused)    echo -e "  Status:      ${Y}⏸ PAUSED${N}" ;;
+        completed) echo -e "  Status:      ${G}✓ COMPLETED${N}" ;;
+        archived)  echo -e "  Status:      archived" ;;
+      esac
+      echo ""
+
+      # Progress
+      echo -e "${C}Progress:${N}"
+      for st in pending claimed in_progress review blocked done cancelled; do
+        local cnt
+        cnt=$(sql "SELECT COUNT(*) FROM tasks WHERE status='$st' AND mission_id=$MID;")
+        [[ "$cnt" -eq 0 ]] && continue
+        echo -e "  $st: $cnt"
+      done
+      echo ""
+
+      # User instructions
+      if [[ -n "$minstr" ]]; then
+        echo -e "${C}📋 User Instructions:${N}"
+        echo -e "  $minstr"
+        echo ""
+      fi
+
+      # Next scheduled tasks
+      local sched
+      sched=$(sql "SELECT id || ' ' || subject || ' ⏰' || substr(scheduled_at,1,16) FROM tasks WHERE mission_id=$MID AND scheduled_at IS NOT NULL AND scheduled_at > datetime('now') AND status NOT IN ('done','cancelled') ORDER BY scheduled_at LIMIT 5;")
+      if [[ -n "$sched" ]]; then
+        echo -e "${C}⏰ Upcoming Scheduled:${N}"
+        while IFS= read -r line; do
+          echo -e "  #$line"
+        done <<< "$sched"
+        echo ""
+      fi
+      ;;
     current)
       ensure_mission_id
       echo -e "Mission:   ${C}$MISSION_NAME${N} (id=$MID)"
       echo -e "Project:   $PROJECT"
       ;;
     *)
-      echo "Usage: mc mission <create|list|archive|complete|current>"
+      echo "Usage: mc mission <create|list|archive|complete|pause|resume|instruct|status|current>"
       ;;
   esac
 }
@@ -372,30 +488,25 @@ if changed:
   local new_dir="$CONFIG_DIR/projects/default"
   local new_db="$new_dir/mission-control.db"
 
-  if [ ! -f "$old_db" ]; then
-    echo -e "${Y}No legacy DB found at $old_db${N}"
-    return 0
-  fi
-  if [ -f "$new_db" ]; then
-    echo -e "${Y}Target already exists: $new_db${N}"
-    echo "  Remove it first or skip migration."
-    return 1
-  fi
+  if [ -f "$old_db" ]; then
+    if [ -f "$new_db" ]; then
+      echo -e "${Y}Target already exists: $new_db${N}"
+      echo "  Remove it first or skip legacy migration."
+    else
+      mkdir -p "$new_dir"
 
-  mkdir -p "$new_dir"
+      # Create new DB with updated schema
+      sqlite3 "$new_db" < "$SCHEMA_DIR/schema.sql"
+      sqlite3 "$new_db" "PRAGMA journal_mode=WAL;" > /dev/null
 
-  # Create new DB with updated schema
-  sqlite3 "$new_db" < "$SCHEMA_DIR/schema.sql"
-  sqlite3 "$new_db" "PRAGMA journal_mode=WAL;" > /dev/null
+      # Migrate data from old DB (single session for ATTACH)
+      # Detect schema version: old (v0.1) has no mission_id in tasks
+      local has_mission_id
+      has_mission_id=$(sqlite3 "$old_db" "SELECT COUNT(*) FROM pragma_table_info('tasks') WHERE name='mission_id';")
 
-  # Migrate data from old DB (single session for ATTACH)
-  # Detect schema version: old (v0.1) has no mission_id in tasks
-  local has_mission_id
-  has_mission_id=$(sqlite3 "$old_db" "SELECT COUNT(*) FROM pragma_table_info('tasks') WHERE name='mission_id';")
-
-  if [ "$has_mission_id" = "0" ]; then
-    # v0.1 schema — no mission_id columns
-    sqlite3 "$new_db" <<MIGRATE_SQL
+      if [ "$has_mission_id" = "0" ]; then
+        # v0.1 schema — no mission_id columns
+        sqlite3 "$new_db" <<MIGRATE_SQL
 ATTACH '$old_db' AS old;
 INSERT OR IGNORE INTO agents SELECT * FROM old.agents;
 INSERT INTO tasks(id,mission_id,subject,description,status,owner,created_by,priority,blocks,blocked_by,tags,created_at,updated_at,claimed_at,completed_at)
@@ -406,9 +517,9 @@ INSERT INTO activity(id,mission_id,agent,action,target_type,target_id,detail,cre
   SELECT id,1,agent,action,target_type,target_id,detail,created_at FROM old.activity;
 DETACH old;
 MIGRATE_SQL
-  else
-    # v0.2+ schema — mission_id already present
-    sqlite3 "$new_db" <<MIGRATE_SQL
+      else
+        # v0.2+ schema — mission_id already present
+        sqlite3 "$new_db" <<MIGRATE_SQL
 ATTACH '$old_db' AS old;
 INSERT OR IGNORE INTO missions SELECT * FROM old.missions;
 INSERT OR IGNORE INTO agents SELECT * FROM old.agents;
@@ -417,14 +528,70 @@ INSERT INTO messages SELECT * FROM old.messages;
 INSERT INTO activity SELECT * FROM old.activity;
 DETACH old;
 MIGRATE_SQL
+      fi
+
+      update_config_project "default"
+
+      echo -e "${G}Legacy migration complete${N}"
+      echo -e "  Old: $old_db"
+      echo -e "  New: $new_db"
+      echo -e "  ${Y}Old DB kept as backup. Remove manually when ready.${N}"
+    fi
   fi
 
-  update_config_project "default"
+  # ── Phase 4: v0.3 schema migration (add new columns) ──
+  # Apply to all project DBs
+  echo -e "${B}Checking v0.3 schema...${N}"
+  local migrated=false
 
-  echo -e "${G}Migration complete${N}"
-  echo -e "  Old: $old_db"
-  echo -e "  New: $new_db"
-  echo -e "  ${Y}Old DB kept as backup. Remove manually when ready.${N}"
+  if [ -d "$CONFIG_DIR/projects" ]; then
+    for d in "$CONFIG_DIR/projects"/*/; do
+      [ -d "$d" ] || continue
+      local pdb="$d/mission-control.db"
+      [ -f "$pdb" ] || continue
+      local pname
+      pname=$(basename "$d")
+
+      # missions.user_instructions
+      local has_col
+      has_col=$(sqlite3 "$pdb" "SELECT COUNT(*) FROM pragma_table_info('missions') WHERE name='user_instructions';")
+      if [ "$has_col" = "0" ]; then
+        sqlite3 "$pdb" "ALTER TABLE missions ADD COLUMN user_instructions TEXT DEFAULT NULL;"
+        echo -e "  ${G}[$pname] Added missions.user_instructions${N}"
+        migrated=true
+      fi
+
+      # missions.last_report_at
+      has_col=$(sqlite3 "$pdb" "SELECT COUNT(*) FROM pragma_table_info('missions') WHERE name='last_report_at';")
+      if [ "$has_col" = "0" ]; then
+        sqlite3 "$pdb" "ALTER TABLE missions ADD COLUMN last_report_at TEXT DEFAULT NULL;"
+        echo -e "  ${G}[$pname] Added missions.last_report_at${N}"
+        migrated=true
+      fi
+
+      # tasks.task_type
+      has_col=$(sqlite3 "$pdb" "SELECT COUNT(*) FROM pragma_table_info('tasks') WHERE name='task_type';")
+      if [ "$has_col" = "0" ]; then
+        sqlite3 "$pdb" "ALTER TABLE tasks ADD COLUMN task_type TEXT DEFAULT 'normal';"
+        echo -e "  ${G}[$pname] Added tasks.task_type${N}"
+        migrated=true
+      fi
+
+      # tasks.scheduled_at
+      has_col=$(sqlite3 "$pdb" "SELECT COUNT(*) FROM pragma_table_info('tasks') WHERE name='scheduled_at';")
+      if [ "$has_col" = "0" ]; then
+        sqlite3 "$pdb" "ALTER TABLE tasks ADD COLUMN scheduled_at TEXT DEFAULT NULL;"
+        echo -e "  ${G}[$pname] Added tasks.scheduled_at${N}"
+        migrated=true
+      fi
+    done
+  fi
+
+  if [ "$migrated" = true ]; then
+    echo -e "${G}v0.3 migration complete${N}"
+  else
+    echo -e "${Y}Already at v0.3 schema${N}"
+  fi
 }
 
 # ═══════════════════════════════════════════
@@ -458,6 +625,15 @@ cmd_checkin() {
       COALESCE((SELECT session_id FROM agents WHERE name='$AGENT'),''),
       COALESCE((SELECT registered_at FROM agents WHERE name='$AGENT'),datetime('now')));"
   ensure_mission_id
+
+  # Pause guard — if mission is paused, stop here
+  local mstatus
+  mstatus=$(sql "SELECT status FROM missions WHERE id=$MID;")
+  if [[ "$mstatus" == "paused" ]]; then
+    echo "MISSION_PAUSED"
+    return 0
+  fi
+
   log_activity "checkin" "agent" 0 ""
   local unread
   unread=$(sql "SELECT COUNT(*) FROM messages WHERE to_agent='$AGENT' AND read_at IS NULL AND (mission_id=$MID OR mission_id IS NULL);")
@@ -470,46 +646,60 @@ cmd_checkin() {
 
 cmd_add() {
   ensure_mission_id
-  local subject="" desc="" priority=0 assignee=""
-  subject="${1:?Usage: mc add \"Subject\" [-d desc] [-p 0|1|2] [--for agent]}"
+  local subject="" desc="" priority=0 assignee="" task_type="normal" scheduled_at=""
+  subject="${1:?Usage: mc add \"Subject\" [-d desc] [-p 0|1|2] [--for agent] [--type normal|checkpoint] [--at \"YYYY-MM-DD HH:MM\"]}"
   shift
   while [[ $# -gt 0 ]]; do
     case "$1" in
       -d) desc="$2"; shift 2;;
       -p) priority="$2"; shift 2;;
       --for) assignee="$2"; shift 2;;
+      --type) task_type="$2"; shift 2;;
+      --at) scheduled_at="$2"; shift 2;;
       *) shift;;
     esac
   done
   local status="pending"
   [[ -n "$assignee" ]] && status="claimed"
+  local sched_sql="NULL"
+  [[ -n "$scheduled_at" ]] && sched_sql="'$scheduled_at'"
   local id
-  id=$(sql "INSERT INTO tasks(mission_id,subject,description,status,owner,created_by,priority,claimed_at)
-    VALUES($MID,'$(echo "$subject" | sed "s/'/''/g")','$(echo "$desc" | sed "s/'/''/g")','$status','$assignee','$AGENT',$priority,$([ -n "$assignee" ] && echo "datetime('now')" || echo "NULL"))
+  id=$(sql "INSERT INTO tasks(mission_id,subject,description,status,owner,created_by,priority,task_type,scheduled_at,claimed_at)
+    VALUES($MID,'$(echo "$subject" | sed "s/'/''/g")','$(echo "$desc" | sed "s/'/''/g")','$status','$assignee','$AGENT',$priority,'$task_type',$sched_sql,$([ -n "$assignee" ] && echo "datetime('now')" || echo "NULL"))
     RETURNING id;")
   log_activity "task_created" "task" "$id" "$subject"
-  echo -e "${G}#$id${N} $subject${assignee:+ → $assignee}"
+  local extra=""
+  [[ -n "$assignee" ]] && extra=" → $assignee"
+  [[ "$task_type" == "checkpoint" ]] && extra="$extra 🏁 checkpoint"
+  [[ -n "$scheduled_at" ]] && extra="$extra ⏰ $scheduled_at"
+  echo -e "${G}#$id${N} $subject${extra}"
 }
 
 cmd_list() {
   ensure_mission_id
-  local where="mission_id=$MID" show_all=false
+  local where="mission_id=$MID" show_all=false show_scheduled=false
   while [[ $# -gt 0 ]]; do
     case "$1" in
       --status) where="$where AND status='$2'"; shift 2;;
       --owner) where="$where AND owner='$2'"; shift 2;;
       --mine) where="$where AND owner='$AGENT'"; shift;;
-      --all) show_all=true; shift;;
+      --all) show_all=true; show_scheduled=true; shift;;
       *) shift;;
     esac
   done
   if [[ "$show_all" == false ]]; then
     where="$where AND status NOT IN ('done','cancelled')"
   fi
+  # Hide future scheduled tasks by default
+  if [[ "$show_scheduled" == false ]]; then
+    where="$where AND (scheduled_at IS NULL OR scheduled_at <= datetime('now'))"
+  fi
   sql_col "SELECT id, subject,
     CASE status WHEN 'done' THEN '✓' WHEN 'in_progress' THEN '▶' WHEN 'claimed' THEN '◉' WHEN 'blocked' THEN '✗' WHEN 'review' THEN '⟳' ELSE '○' END || ' ' || status AS st,
     COALESCE(owner,'-') AS owner,
-    CASE priority WHEN 2 THEN '!!!' WHEN 1 THEN '!' ELSE '' END AS pri
+    CASE priority WHEN 2 THEN '!!!' WHEN 1 THEN '!' ELSE '' END
+      || CASE WHEN task_type='checkpoint' THEN ' 🏁' ELSE '' END
+      || CASE WHEN scheduled_at IS NOT NULL AND scheduled_at > datetime('now') THEN ' ⏰' || substr(scheduled_at,1,16) ELSE '' END AS flags
     FROM tasks WHERE $where ORDER BY priority DESC, id;"
 }
 
@@ -577,6 +767,35 @@ except: print('[]')" 2>/dev/null || echo "[]")
       echo -e "${C}↳ #$tid unblocked${N}"
     fi
   done <<< "$blocked_tasks"
+
+  # Checkpoint auto-pause: if completed task is a checkpoint, pause the mission
+  local ttype
+  ttype=$(sql "SELECT task_type FROM tasks WHERE id=$id AND mission_id=$MID;")
+  if [[ "$ttype" == "checkpoint" ]]; then
+    sql "UPDATE missions SET status='paused', updated_at=datetime('now') WHERE id=$MID;"
+    log_activity "mission_paused" "mission" "$MID" "checkpoint #$id reached"
+    echo -e "${Y}🏁 Checkpoint reached — mission paused${N}"
+
+    # Disable crons for this mission's agents
+    local pattern="$PROJECT-$MISSION_NAME-"
+    local oc_profile_flag=""
+    [ -n "${OPENCLAW_PROFILE:-}" ] && oc_profile_flag="--profile $OPENCLAW_PROFILE"
+    local cron_json
+    cron_json=$(openclaw $oc_profile_flag cron list --json 2>/dev/null || echo '{"jobs":[]}')
+    local cron_ids
+    cron_ids=$(echo "$cron_json" | python3 -c "
+import sys, json
+data = json.load(sys.stdin)
+for job in data.get('jobs', []):
+    if job.get('name','').startswith('$pattern'):
+        print(job['id'])" 2>/dev/null)
+    while IFS= read -r cid; do
+      [[ -z "$cid" ]] && continue
+      openclaw $oc_profile_flag cron disable "$cid" 2>/dev/null && \
+        echo -e "  Disabled cron: $cid" || true
+    done <<< "$cron_ids"
+    echo -e "${Y}Resume with: mc -p $PROJECT -m $MISSION_NAME mission resume${N}"
+  fi
 }
 
 cmd_block() {
@@ -593,9 +812,15 @@ cmd_block() {
 
 cmd_board() {
   ensure_mission_id
+
+  # Show mission status in header
+  local mstatus
+  mstatus=$(sql "SELECT status FROM missions WHERE id=$MID;")
   echo -e "${B}═══ MISSION CONTROL ═══${N}  $(date '+%H:%M')  agent: ${C}$AGENT${N}"
   echo -e "  project: ${C}$PROJECT${N}  mission: ${C}$MISSION_NAME${N}"
+  [[ "$mstatus" == "paused" ]] && echo -e "  status: ${Y}⏸ PAUSED${N}"
   echo ""
+
   for status in pending claimed in_progress review blocked done; do
     local count
     count=$(sql "SELECT COUNT(*) FROM tasks WHERE status='$status' AND mission_id=$MID;")
@@ -603,9 +828,22 @@ cmd_board() {
     local icon
     case $status in pending) icon="○";; claimed) icon="◉";; in_progress) icon="▶";; review) icon="⟳";; blocked) icon="✗";; done) icon="✓";; esac
     echo -e "${B}── $icon $status ($count) ──${N}"
-    sql "SELECT '  #' || id || ' ' || subject || CASE WHEN owner IS NOT NULL THEN ' [' || owner || ']' ELSE '' END FROM tasks WHERE status='$status' AND mission_id=$MID ORDER BY priority DESC, id LIMIT 10;"
+    sql "SELECT '  #' || id || ' ' || subject
+      || CASE WHEN owner IS NOT NULL THEN ' [' || owner || ']' ELSE '' END
+      || CASE WHEN task_type='checkpoint' THEN ' 🏁' ELSE '' END
+      || CASE WHEN scheduled_at IS NOT NULL AND scheduled_at > datetime('now') THEN ' ⏰' || substr(scheduled_at,1,16) ELSE '' END
+      FROM tasks WHERE status='$status' AND mission_id=$MID ORDER BY priority DESC, id LIMIT 10;"
     echo ""
   done
+
+  # Show upcoming scheduled tasks
+  local sched_count
+  sched_count=$(sql "SELECT COUNT(*) FROM tasks WHERE mission_id=$MID AND scheduled_at IS NOT NULL AND scheduled_at > datetime('now') AND status NOT IN ('done','cancelled');")
+  if [[ "$sched_count" -gt 0 ]]; then
+    echo -e "${B}── ⏰ scheduled ($sched_count) ──${N}"
+    sql "SELECT '  #' || id || ' ' || subject || ' ⏰' || substr(scheduled_at,1,16) || CASE WHEN owner IS NOT NULL THEN ' [' || owner || ']' ELSE '' END FROM tasks WHERE mission_id=$MID AND scheduled_at IS NOT NULL AND scheduled_at > datetime('now') AND status NOT IN ('done','cancelled') ORDER BY scheduled_at LIMIT 5;"
+    echo ""
+  fi
 }
 
 # ═══════════════════════════════════════════
@@ -694,12 +932,13 @@ cmd_whoami() {
 
 cmd_help() {
   cat <<'EOF'
-Mission Control v0.2 — Coordination for OpenClaw agent fleets
+Mission Control v0.3 — Coordination for OpenClaw agent fleets
 
 USAGE: mc [-p project] [-m mission] <command> [args]
 
 TASKS:
-  add "Subject" [-d desc] [-p 0|1|2] [--for agent]   Create task
+  add "Subject" [-d desc] [-p 0|1|2] [--for agent]    Create task
+      [--type normal|checkpoint] [--at "YYYY-MM-DD HH:MM"]
   list [--status S] [--owner A] [--mine] [--all]       List tasks
   claim <id>                                           Claim a task
   start <id>                                           Begin work
@@ -732,10 +971,14 @@ MISSION:
   mission list                                         List missions
   mission archive <name>                               Archive mission
   mission complete                                     Complete + cleanup agents/crons
+  mission pause                                        Pause mission + disable crons
+  mission resume                                       Resume mission + enable crons
+  mission instruct "text"                              Set user instructions
+  mission status                                       Show mission status & progress
   mission current                                      Show current
 
 MIGRATION:
-  migrate                                              Migrate legacy DB
+  migrate                                              Migrate DB schema
 
 GLOBAL FLAGS:
   -p, --project <name>     Target project (-w/--workspace also accepted)

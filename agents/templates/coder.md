@@ -49,6 +49,8 @@ Every time you are invoked, follow this workflow:
 mc -p {project} -m {mission} checkin
 ```
 
+**If the output contains `MISSION_PAUSED`, stop here. Do not proceed.**
+
 ### 2. Check Messages
 ```bash
 mc -p {project} -m {mission} inbox --unread

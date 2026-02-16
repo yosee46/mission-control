@@ -1,4 +1,4 @@
--- Mission Control Schema v0.2
+-- Mission Control Schema v0.3
 -- Shared coordination layer for OpenClaw agent fleets
 -- Supports multi-mission workspaces
 
@@ -11,7 +11,9 @@ CREATE TABLE IF NOT EXISTS missions (
   name        TEXT NOT NULL UNIQUE,
   description TEXT,
   status      TEXT DEFAULT 'active'
-                CHECK(status IN ('active','archived','completed')),
+                CHECK(status IN ('active','paused','archived','completed')),
+  user_instructions TEXT DEFAULT NULL,
+  last_report_at   TEXT DEFAULT NULL,
   created_at  TEXT DEFAULT (datetime('now')),
   updated_at  TEXT DEFAULT (datetime('now'))
 );
@@ -35,6 +37,9 @@ CREATE TABLE IF NOT EXISTS tasks (
   blocks      TEXT DEFAULT '[]',
   blocked_by  TEXT DEFAULT '[]',
   tags        TEXT DEFAULT '[]',
+  task_type   TEXT DEFAULT 'normal'
+                CHECK(task_type IN ('normal','checkpoint')),
+  scheduled_at TEXT DEFAULT NULL,
   created_at  TEXT DEFAULT (datetime('now')),
   updated_at  TEXT DEFAULT (datetime('now')),
   claimed_at  TEXT,

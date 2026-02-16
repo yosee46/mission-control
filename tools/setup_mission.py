@@ -135,10 +135,24 @@ def generate_cron_message(agent_id: str, project: str, mission: str, profile_env
     mc = f"{profile_env}mc" if profile_env else "mc"
     return (
         f"You are {agent_id}. Read your AGENTS.md, then execute your workflow: "
-        f"{mc} -p {project} -m {mission} checkin && "
-        f"{mc} -p {project} -m {mission} list --mine --status pending && "
+        f"{mc} -p {project} -m {mission} checkin — "
+        f"if output contains MISSION_PAUSED then stop. "
+        f"Otherwise: {mc} -p {project} -m {mission} list --mine --status pending && "
         f"claim and work on your highest-priority task. "
         f"If no tasks, check {mc} -p {project} -m {mission} list --status pending for unclaimed work."
+    )
+
+
+def generate_monitor_cron_message(project: str, mission: str, profile_env: str = "") -> str:
+    """Generate the cron message for the architect monitoring cron."""
+    mc = f"{profile_env}mc" if profile_env else "mc"
+    return (
+        f"You are mc-architect monitoring {project}/{mission}. Run: "
+        f"{mc} -p {project} -m {mission} mission status && "
+        f"{mc} -p {project} -m {mission} board && "
+        f"{mc} -p {project} -m {mission} inbox --unread. "
+        f"Analyze progress, create new tasks or adjust existing ones as needed. "
+        f"If all tasks done, create a checkpoint task."
     )
 
 
@@ -164,6 +178,14 @@ def main():
     parser.add_argument(
         "--profile",
         help="OpenClaw profile name (overrides OPENCLAW_PROFILE env var)"
+    )
+    parser.add_argument(
+        "--monitor", action="store_true",
+        help="Register a monitoring cron for mc-architect (checks progress every 6h)"
+    )
+    parser.add_argument(
+        "--monitor-cron", default="0 */6 * * *",
+        help="Cron schedule for monitoring (default: every 6 hours)"
     )
     parser.add_argument(
         "--dry-run", action="store_true",
@@ -294,9 +316,29 @@ def main():
         agents_created.append(agent_id)
         print(f"  OK — {agent_id} ready")
 
-    # ─── Step 5: Summary ───
+    # ─── Step 5: Register monitor cron (optional) ───
+    if args.monitor:
+        monitor_name = f"{project}-{mission}-monitor"
+        monitor_msg = generate_monitor_cron_message(project, mission, profile_env)
+        monitor_schedule = args.monitor_cron
+        print(f"\n[5/6] Registering monitor cron ({monitor_name})...")
+        if not dry_run:
+            escaped_msg = monitor_msg.replace('"', '\\"')
+            run(
+                f'openclaw {oc_profile_flag} cron add '
+                f'--agent mc-architect '
+                f'--name {monitor_name} '
+                f'--cron "{monitor_schedule}" '
+                f'--session isolated '
+                f'--message "{escaped_msg}"'.strip(),
+                check=False,
+            )
+        print(f"  OK — {monitor_name} ({monitor_schedule})")
+
+    # ─── Step 6: Summary ───
     mc_prefix = f"{profile_env}mc" if profile_env else "mc"
-    print(f"\n[5/5] Summary")
+    total_steps = 6 if args.monitor else 5
+    print(f"\n[{total_steps}/{total_steps}] Summary")
     print(f"")
     print(f"═══ Team Ready ═══")
     print(f"  Project:    {mc_prefix} -p {project}")
@@ -307,6 +349,8 @@ def main():
     print(f"  Agents:     {len(agents_created)}")
     for a in agents_created:
         print(f"    - {a}")
+    if args.monitor:
+        print(f"  Monitor:    {project}-{mission}-monitor ({args.monitor_cron})")
     print(f"")
     print(f"Next: Use mc to add tasks for the team:")
     for role in roles:
