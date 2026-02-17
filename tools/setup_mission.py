@@ -165,16 +165,40 @@ def generate_cron_message(agent_id: str, project: str, mission: str, profile_env
     )
 
 
-def generate_monitor_cron_message(project: str, mission: str, profile_env: str = "") -> str:
-    """Generate the cron message for the architect monitoring cron."""
+def load_monitor_template() -> str:
+    """Load monitor.md template."""
+    monitor_path = TEMPLATE_DIR / "monitor.md"
+    if monitor_path.exists():
+        return monitor_path.read_text()
+
+    # Inline fallback if template not installed
+    return """# {agent_id}
+
+## Identity
+You are **{agent_id}**, a mission progress monitor, working on project **{project}**.
+
+## Mission Context
+- **Project**: {project}
+- **Mission**: {mission}
+- **Goal**: {goal}
+- **Working Directory**: ~/projects/{project}/
+- **Role**: monitor
+
+## Monitoring Workflow
+1. `mc -p {project} -m {mission} checkin` — if PAUSED/COMPLETED/ARCHIVED, stop
+2. `mc -p {project} -m {mission} mission status` — review state and user instructions
+3. `mc -p {project} -m {mission} board` — check task progress
+4. `mc -p {project} -m {mission} inbox --unread` — check messages
+5. Analyze: blocked agents → reassign; stale tasks → message; all done → checkpoint
+6. Escalate if needed: `mc -p {project} -m {mission} msg mc-architect "reason" --type alert`
+"""
+
+
+def generate_monitor_cron_message(agent_id: str, project: str, mission: str, profile_env: str = "") -> str:
+    """Generate the cron message for the monitor agent."""
     mc = f"{profile_env}mc" if profile_env else "mc"
     return (
-        f"You are mc-architect monitoring {project}/{mission}. Run: "
-        f"{mc} -p {project} -m {mission} mission status && "
-        f"{mc} -p {project} -m {mission} board && "
-        f"{mc} -p {project} -m {mission} inbox --unread. "
-        f"Analyze progress, create new tasks or adjust existing ones as needed. "
-        f"If all tasks done, create a checkpoint task."
+        f"You are {agent_id}. Execute your monitoring workflow as described in your AGENTS.md."
     )
 
 
@@ -207,7 +231,7 @@ def main():
     )
     parser.add_argument(
         "--monitor", action="store_true",
-        help="Register a monitoring cron for mc-architect (checks progress every 6h)"
+        help="Create a dedicated monitor agent for this mission (checks progress every 6h)"
     )
     parser.add_argument(
         "--monitor-cron", default="0 */6 * * *",
@@ -350,24 +374,68 @@ def main():
         agents_created.append(agent_id)
         print(f"  OK — {agent_id} ready")
 
-    # ─── Step 5: Register monitor cron (optional) ───
+    # ─── Step 5: Register monitor agent (optional) ───
     if args.monitor:
-        monitor_name = f"{project}-{mission}-monitor"
-        monitor_msg = generate_monitor_cron_message(project, mission, profile_env)
+        monitor_id = f"{project}-{mission}-monitor"
         monitor_schedule = args.monitor_cron
-        print(f"\n[5/6] Registering monitor cron ({monitor_name})...")
+        ws_dir = CONFIG_DIR / "agent_workspaces" / monitor_id
+
+        print(f"\n[5/6] Registering monitor agent ({monitor_id})...")
+
+        # a. Create workspace
+        print(f"  Creating workspace: {ws_dir}")
+        if not dry_run:
+            ws_dir.mkdir(parents=True, exist_ok=True)
+
+        # b. Generate AGENTS.md from monitor template
+        monitor_template = load_monitor_template()
+        agents_md = safe_render(
+            monitor_template,
+            agent_id=monitor_id,
+            project=project,
+            mission=mission,
+            goal=goal,
+        )
+        agents_md_path = ws_dir / "AGENTS.md"
+        print(f"  Writing AGENTS.md")
+        if not dry_run:
+            agents_md_path.write_text(agents_md)
+
+        # c. Register openclaw agent
+        print(f"  Registering openclaw agent: {monitor_id}")
+        if not dry_run:
+            run(
+                f"openclaw {oc_profile_flag} agents add {monitor_id} "
+                f"--workspace {ws_dir} "
+                f"--non-interactive".strip(),
+                check=False,
+            )
+
+        # d. Register in MC fleet
+        print(f"  Registering in MC fleet")
+        if not dry_run:
+            run(
+                f"{profile_env}MC_AGENT={monitor_id} mc -p {project} register {monitor_id} --role monitor",
+                check=False,
+            )
+
+        # e. Add cron job
+        monitor_msg = generate_monitor_cron_message(monitor_id, project, mission, profile_env)
+        print(f"  Adding cron job ({monitor_schedule})")
         if not dry_run:
             escaped_msg = monitor_msg.replace('"', '\\"')
             run(
                 f'openclaw {oc_profile_flag} cron add '
-                f'--agent mc-architect '
-                f'--name {monitor_name} '
+                f'--agent {monitor_id} '
+                f'--name {monitor_id} '
                 f'--cron "{monitor_schedule}" '
                 f'--session isolated '
                 f'--message "{escaped_msg}"'.strip(),
                 check=False,
             )
-        print(f"  OK — {monitor_name} ({monitor_schedule})")
+
+        agents_created.append(monitor_id)
+        print(f"  OK — {monitor_id} ready")
 
     # ─── Step 6: Summary ───
     mc_prefix = f"{profile_env}mc" if profile_env else "mc"

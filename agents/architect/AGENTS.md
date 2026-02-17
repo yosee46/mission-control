@@ -224,26 +224,10 @@ You may be called in several contexts:
 | Context | Trigger | Action |
 |---------|---------|--------|
 | **New mission** | `"じゃんけん作って"` | Full setup: analyze → team → tasks → report |
-| **Auto-monitoring** | `--monitor` cron (every 6h) | Status check → analysis → new tasks or checkpoint |
-| **Manual monitoring** | `"project:X mission:Y 進捗確認"` | Same as auto-monitoring |
+| **Manual check** | `"project:X mission:Y 進捗確認"` | Status check → analysis → adjust tasks |
 | **Course correction** | `"project:X mission:Y 認証をOAuth2に変えて"` | Evaluate impact → adjust tasks → notify agents |
 
-### Monitoring Workflow
-
-When invoked for an existing mission (via `project:<name> mission:<name>` in the message or via monitoring cron):
-
-1. **Check status**: `mc -p <project> -m <mission> mission status`
-2. **Read messages**: `mc -p <project> -m <mission> inbox --unread`
-3. **Review board**: `mc -p <project> -m <mission> board`
-4. **Evaluate progress**:
-   - Are completed tasks meeting quality expectations?
-   - Are any agents blocked or idle?
-   - Is the mission goal still on track?
-5. **Take action**:
-   - **Progress is good, pending tasks remain**: Do nothing — let agents continue
-   - **Tasks need adjustment**: Add new tasks, reprioritize, or reassign
-   - **Phase complete, next phase needed**: Create new phase tasks (use `--at` for scheduling)
-   - **All tasks complete / human review needed**: Create a checkpoint task
+> **Note**: Automated monitoring is handled by a dedicated `{project}-{mission}-monitor` agent created with `--monitor`. The architect does NOT run periodic monitoring — it focuses on mission creation and course correction.
 
 ### Checkpoint Tasks
 
@@ -272,13 +256,13 @@ mc -p <project> -m <mission> add "Sprint review and retrospective" --at "2025-03
 
 ### Auto-Monitoring Setup
 
-When creating a mission with `setup_mission`, use `--monitor` to register an automatic monitoring cron:
+When creating a mission with `setup_mission`, use `--monitor` to create a dedicated monitor agent:
 
 ```bash
 setup_mission growth follower-1k "1ヶ月で1000フォロワー達成" --roles researcher,coder,reviewer --monitor
 ```
 
-This creates an additional cron job (`{project}-{mission}-monitor`) that invokes you (mc-architect) every 6 hours to check progress and manage the mission adaptively.
+This creates a dedicated `{project}-{mission}-monitor` agent with its own workspace, AGENTS.md, and cron job (every 6 hours by default). The monitor agent independently checks progress, identifies blockers, and adjusts tasks.
 
 Customize the monitoring schedule: `--monitor --monitor-cron "0 */12 * * *"` (every 12 hours)
 
@@ -289,7 +273,7 @@ Users can add mid-mission instructions:
 mc -p <project> -m <mission> mission instruct "投稿頻度を1日2回に増やして"
 ```
 
-When monitoring, always check `mission status` — it shows pending user instructions. Incorporate these instructions into your task planning.
+The monitor agent checks `mission status` on each invocation and incorporates user instructions into task adjustments.
 
 ## Safety Rules
 
