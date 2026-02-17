@@ -191,8 +191,54 @@ You are **{agent_id}**, a mission progress monitor, working on project **{projec
 3. `mc -p {project} -m {mission} board` — check task progress
 4. `mc -p {project} -m {mission} inbox --unread` — check messages
 5. Analyze: blocked agents → reassign; stale tasks → message; all done → checkpoint
-6. Escalate if needed: `mc -p {project} -m {mission} msg mc-architect "reason" --type alert`
+6. Escalate if needed: `mc -p {project} -m {mission} add "Human: <reason>" --for {project}-{mission}-escalator`
+
+{monitor_policy}
 """
+
+
+def load_escalator_template() -> str:
+    """Load escalator.md template."""
+    escalator_path = TEMPLATE_DIR / "escalator.md"
+    if escalator_path.exists():
+        return escalator_path.read_text()
+
+    # Inline fallback if template not installed
+    return """# {agent_id}
+
+## Identity
+You are **{agent_id}**, the human escalation agent for project **{project}**.
+You are the **sole channel** between the AI agent team and the human operator.
+
+## Mission Context
+- **Project**: {project}
+- **Mission**: {mission}
+- **Goal**: {goal}
+- **Working Directory**: ~/projects/{project}/
+- **Role**: escalator
+- **Human Slack User**: <@{slack_user_id}>
+
+## Escalation Policy
+**MUST escalate:** human judgment needed, credentials needed, budget approval, destructive actions, unclear goals.
+**Do NOT escalate:** technical choices, bug fixes, code review, task prioritization.
+
+{escalation_policy}
+
+## Workflow
+1. `mc -p {project} -m {mission} checkin` — if PAUSED/COMPLETED/ARCHIVED, stop
+2. `mc -p {project} -m {mission} mission status` — relay human instructions to requesting agents
+3. `mc -p {project} -m {mission} list --mine --status pending` — process escalation tasks
+4. No tasks → disable own cron (monitor will re-enable when needed)
+"""
+
+
+def generate_escalator_cron_message(agent_id: str, project: str, mission: str, profile_env: str = "") -> str:
+    """Generate the cron message for the escalator agent."""
+    mc = f"{profile_env}mc" if profile_env else "mc"
+    return (
+        f"You are {agent_id}. Execute your escalation workflow as described in your AGENTS.md. "
+        f"日本語で応答すること。"
+    )
 
 
 def generate_monitor_cron_message(agent_id: str, project: str, mission: str, profile_env: str = "") -> str:
@@ -244,6 +290,18 @@ def main():
         help="Slack channel ID for cron delivery (e.g., C0AD97HHZD3)"
     )
     parser.add_argument(
+        "--slack-user-id", required=True,
+        help="Slack user ID for @mention in escalation (e.g., U01ABCDEF)"
+    )
+    parser.add_argument(
+        "--monitor-policy",
+        help="Monitoring policy text (how monitor judges task creation, course correction)"
+    )
+    parser.add_argument(
+        "--escalation-policy",
+        help="Additional escalation policy text for the escalator agent"
+    )
+    parser.add_argument(
         "--dry-run", action="store_true",
         help="Show what would be done without executing"
     )
@@ -290,6 +348,7 @@ def main():
         print(f"  Profile:  {profile}")
     print(f"  Cron:     {cron_schedule}")
     print(f"  Slack:    {args.slack_channel}")
+    print(f"  Slack User: {args.slack_user_id}")
     print()
 
     if dry_run:
@@ -403,6 +462,8 @@ def main():
             project=project,
             mission=mission,
             goal=goal,
+            monitor_policy=args.monitor_policy or "",
+            slack_user_id=args.slack_user_id,
         )
         agents_md_path = ws_dir / "AGENTS.md"
         print(f"  Writing AGENTS.md")
@@ -446,6 +507,71 @@ def main():
         agents_created.append(monitor_id)
         print(f"  OK — {monitor_id} ready")
 
+    # ─── Step 5b: Register escalator agent (always when monitor is enabled) ───
+    if args.monitor:
+        escalator_id = f"{project}-{mission}-escalator"
+        ws_dir = CONFIG_DIR / "agent_workspaces" / escalator_id
+
+        print(f"\n  Registering escalator agent ({escalator_id})...")
+
+        # a. Create workspace
+        print(f"  Creating workspace: {ws_dir}")
+        if not dry_run:
+            ws_dir.mkdir(parents=True, exist_ok=True)
+
+        # b. Generate AGENTS.md from escalator template
+        escalator_template = load_escalator_template()
+        agents_md = safe_render(
+            escalator_template,
+            agent_id=escalator_id,
+            project=project,
+            mission=mission,
+            goal=goal,
+            slack_user_id=args.slack_user_id,
+            escalation_policy=args.escalation_policy or "",
+        )
+        agents_md_path = ws_dir / "AGENTS.md"
+        print(f"  Writing AGENTS.md")
+        if not dry_run:
+            agents_md_path.write_text(agents_md)
+
+        # c. Register openclaw agent
+        print(f"  Registering openclaw agent: {escalator_id}")
+        if not dry_run:
+            run(
+                f"openclaw {oc_profile_flag} agents add {escalator_id} "
+                f"--workspace {ws_dir} "
+                f"--non-interactive".strip(),
+                check=False,
+            )
+
+        # d. Register in MC fleet
+        print(f"  Registering in MC fleet")
+        if not dry_run:
+            run(
+                f"{profile_env}MC_AGENT={escalator_id} mc -p {project} register {escalator_id} --role escalator",
+                check=False,
+            )
+
+        # e. Add cron job (same schedule as regular agents)
+        escalator_msg = generate_escalator_cron_message(escalator_id, project, mission, profile_env)
+        print(f"  Adding cron job ({cron_schedule})")
+        if not dry_run:
+            escaped_msg = escalator_msg.replace('"', '\\"')
+            run(
+                f'openclaw {oc_profile_flag} cron add '
+                f'--agent {escalator_id} '
+                f'--name {escalator_id} '
+                f'--cron "{cron_schedule}" '
+                f'--session isolated '
+                f'--announce --channel slack --to {args.slack_channel} '
+                f'--message "{escaped_msg}"'.strip(),
+                check=False,
+            )
+
+        agents_created.append(escalator_id)
+        print(f"  OK — {escalator_id} ready")
+
     # ─── Step 6: Summary ───
     mc_prefix = f"{profile_env}mc" if profile_env else "mc"
     total_steps = 6 if args.monitor else 5
@@ -464,6 +590,7 @@ def main():
         print(f"    - {a}")
     if args.monitor:
         print(f"  Monitor:    {project}-{mission}-monitor ({args.monitor_cron})")
+        print(f"  Escalator:  {project}-{mission}-escalator")
     print(f"")
     print(f"Next: Use mc to add tasks for the team:")
     for role in roles:

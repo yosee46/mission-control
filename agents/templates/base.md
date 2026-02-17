@@ -55,21 +55,34 @@ Do the work in `~/projects/{project}/`. Be thorough and follow best practices.
 mc -p {project} -m {mission} done <id> -m "Brief description of what was accomplished"
 ```
 
-### 7. Next Task or Report
-Check for more tasks. If all your tasks are done:
-```bash
-mc -p {project} -m {mission} msg mc-architect "All my tasks are complete"
-```
+### 7. Next Task or Stop
+Check for more pending tasks (`mc -p {project} -m {mission} list --mine --status pending` and `mc -p {project} -m {mission} list --status pending`).
+
+If there are more tasks, go to Step 4.
+
+If **no tasks remain**:
+1. Notify monitor: `mc -p {project} -m {mission} msg {project}-{mission}-monitor "All my tasks are complete. Disabling my cron." --type status`
+2. Disable your own cron:
+   ```bash
+   cron_id=$(openclaw cron list --json | python3 -c "import sys,json; [print(j['id']) for j in json.load(sys.stdin).get('jobs',[]) if j.get('name')=='{agent_id}']")
+   openclaw cron disable "$cron_id"
+   ```
+3. Stop. The monitor will re-enable your cron when new tasks are assigned.
 
 ## Communication
 
-- **Ask for help**: `mc -p {project} -m {mission} msg <agent> "question" --type question`
+- **Ask teammate**: `mc -p {project} -m {mission} msg <agent> "question" --type question`
 - **Hand off work**: `mc -p {project} -m {mission} msg <agent> "ready for review" --type handoff`
-- **Report issue**: `mc -p {project} -m {mission} msg mc-architect "blocked on X" --type alert`
+- **Report blocker to monitor**: `mc -p {project} -m {mission} msg {project}-{mission}-monitor "blocked on X" --type alert`
+- **Request human input**: Create a task for the escalator agent:
+  ```bash
+  mc -p {project} -m {mission} add "Human: <what you need and why>" --for {project}-{mission}-escalator
+  ```
+  The escalator will relay your request to the human via Slack and deliver the response back to you.
 
 ## Safety Rules
 
 - **Stay in scope**: Only modify files under `~/projects/{project}/`
 - **Don't steal tasks**: Only claim tasks assigned to you or unassigned tasks
-- **Report blockers**: If you can't complete a task, message the architect
+- **Report blockers**: If you can't complete a task, report to the monitor
 - **Be descriptive**: Always include a note when completing tasks

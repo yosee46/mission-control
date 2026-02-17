@@ -32,6 +32,7 @@ Parse the user's request to determine:
 - **Project name**: Check if `project:<name>` is specified in the message. If so, use that project (existing or new). Otherwise, choose a short, kebab-case identifier (e.g., `ec-site`, `blog-app`)
 - **Mission name**: Phase or objective (e.g., `prototype`, `mvp`, `v1`, `security-audit`)
 - **Goal**: Clear one-line summary of the objective
+- **Slack User ID**: Ask the user for their Slack user ID (for @mention in escalation). Format: `U01ABCDEF`
 
 **Project specification examples:**
 - `"project:ec-site セキュリティレビューして"` → use project `ec-site`
@@ -90,6 +91,23 @@ For missions that benefit from specialized agents, create a `roles.json` file th
 
 The specialization text is injected directly into the agent's AGENTS.md. Use markdown formatting. You can reference `{project}` in the specialization — it will be rendered correctly.
 
+### 3.5. Define Monitoring & Escalation Policy
+
+When using `--monitor`, interview the user to define:
+
+- **Success criteria**: What constitutes mission completion? (e.g., "all tests pass", "deployed to staging")
+- **Monitoring focus**: What should the monitor watch for? (e.g., quality, deadline, specific metrics)
+- **Escalation conditions**: Beyond the defaults, when should the human be notified? (e.g., "if any task takes >2 days", "if test coverage drops below 80%")
+- **Review cycle**: How often should the human review progress? (e.g., "daily summary", "weekly checkpoint")
+
+Use the answers to compose `--monitor-policy` and `--escalation-policy` arguments for `setup_mission`.
+
+Example:
+```
+--monitor-policy "Success: all tests pass and deployed to staging. Alert if any task stale >24h."
+--escalation-policy "Escalate if external API integration is needed or deployment to production."
+```
+
 ### 4. Create the Team
 
 Run `setup_mission` with your decisions:
@@ -97,36 +115,43 @@ Run `setup_mission` with your decisions:
 ```bash
 # Without role-config (uses builtin descriptions)
 setup_mission <project> <mission> "<goal>" --roles <role1>,<role2>,... \
-  --slack-channel <channel-id>
+  --slack-channel <channel-id> --slack-user-id <user-id>
 
-# With role-config (uses roles.json for descriptions + specializations)
+# With role-config + monitoring + escalation
 setup_mission <project> <mission> "<goal>" --roles <role1>,<role2>,... \
-  --slack-channel <channel-id> \
-  --role-config ~/projects/<project>/roles.json
+  --slack-channel <channel-id> --slack-user-id <user-id> \
+  --role-config ~/projects/<project>/roles.json \
+  --monitor \
+  --monitor-policy "Success criteria and monitoring focus" \
+  --escalation-policy "Additional escalation conditions"
 ```
 
-**`--slack-channel` is required.** This sets the Slack channel ID where cron job summaries are delivered. Ask the user for the channel ID or check their mission instructions.
+**`--slack-channel` and `--slack-user-id` are required.** The channel ID sets where cron summaries are delivered. The user ID enables @mention in escalation messages. Ask the user for both or check their mission instructions.
 
 If `OPENCLAW_PROFILE` is set, add `--profile`:
 ```bash
 setup_mission <project> <mission> "<goal>" --roles <role1>,<role2>,... \
-  --slack-channel <channel-id> --profile $OPENCLAW_PROFILE
+  --slack-channel <channel-id> --slack-user-id <user-id> --profile $OPENCLAW_PROFILE
 ```
 
 Examples:
 ```bash
-# Standard dev team
+# Standard dev team with monitoring
 setup_mission ec-site prototype \
   "Django EC site prototype with auth, product list, and cart" \
   --roles researcher,backend,frontend,reviewer \
-  --slack-channel C0AD97HHZD3
+  --slack-channel C0AD97HHZD3 --slack-user-id U01ABCDEF \
+  --monitor \
+  --monitor-policy "Success: all tests pass. Alert if task stale >24h." \
+  --escalation-policy "Escalate if external API keys or server access needed."
 
 # Specialized team with roles.json
 setup_mission growth seo-campaign \
   "SEO campaign to increase organic traffic by 50%" \
   --roles analyst,content-writer,reviewer \
-  --slack-channel C0AD97HHZD3 \
-  --role-config ~/projects/growth/roles.json
+  --slack-channel C0AD97HHZD3 --slack-user-id U01ABCDEF \
+  --role-config ~/projects/growth/roles.json \
+  --monitor
 ```
 
 This creates agents named: `ec-site-prototype-researcher`, `growth-seo-campaign-analyst`, etc.
@@ -267,10 +292,18 @@ When creating a mission with `setup_mission`, use `--monitor` to create a dedica
 
 ```bash
 setup_mission growth follower-1k "1ヶ月で1000フォロワー達成" \
-  --roles researcher,coder,reviewer --slack-channel C0AD97HHZD3 --monitor
+  --roles researcher,coder,reviewer \
+  --slack-channel C0AD97HHZD3 --slack-user-id U01ABCDEF \
+  --monitor \
+  --monitor-policy "Success: 1000 followers reached. Watch daily follower growth rate." \
+  --escalation-policy "Escalate if account access issues or ad budget approval needed."
 ```
 
-This creates a dedicated `{project}-{mission}-monitor` agent with its own workspace, AGENTS.md, and cron job (every 6 hours by default). The monitor agent independently checks progress, identifies blockers, and adjusts tasks.
+This creates:
+- A dedicated `{project}-{mission}-monitor` agent (checks progress every 6h by default)
+- A dedicated `{project}-{mission}-escalator` agent (relays requests to human via Slack)
+
+Both have their own workspace, AGENTS.md, and cron job. The monitor identifies blockers and adjusts tasks. The escalator is the sole channel to the human operator.
 
 Customize the monitoring schedule: `--monitor --monitor-cron "0 */12 * * *"` (every 12 hours)
 
