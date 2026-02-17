@@ -62,7 +62,7 @@ bash install.sh
 This installs:
 - `~/bin/mc` — Mission Control CLI
 - `~/bin/setup_mission` — Team composition tool
-- `~/.openclaw/mc-templates/` — Agent role templates
+- `~/.openclaw/mc-templates/base.md` — Agent template
 - `mc-architect` — Lead architect agent (auto-registered)
 
 #### Profile Support
@@ -167,6 +167,34 @@ mc -p ec-site -m prototype board
 mc -p ec-site fleet
 ```
 
+### Dynamic Role Composition
+
+For missions requiring specialized agents beyond standard dev roles, create a `roles.json` to define custom role descriptions and specializations:
+
+```json
+{
+  "roles": {
+    "analyst": {
+      "description": "market analysis and data collection specialist",
+      "specialization": "## Specialization\n\nYou are a **market analyst**...\n\n### Task Patterns\n..."
+    },
+    "content-writer": {
+      "description": "SEO-focused content writing specialist",
+      "specialization": "## Specialization\n\nYou are a **content writing specialist**..."
+    }
+  }
+}
+```
+
+```bash
+setup_mission growth seo-campaign \
+  "SEO campaign to increase organic traffic" \
+  --roles analyst,content-writer,reviewer \
+  --role-config roles.json
+```
+
+The `--role-config` option injects each role's specialization into the agent's AGENTS.md. Without it, agents use a generic template with builtin descriptions.
+
 ### Mission Cleanup
 
 ```bash
@@ -227,11 +255,8 @@ Projects provide **physical DB isolation** — each project has its own SQLite f
 ~/.openclaw/                             # Default (no profile)
 ~/.openclaw-<profile>/                   # With OPENCLAW_PROFILE=<profile>
 ├── config.json
-├── mc-templates/                        # Agent role templates
-│   ├── base.md
-│   ├── researcher.md
-│   ├── coder.md
-│   └── reviewer.md
+├── mc-templates/                        # Agent template
+│   └── base.md
 ├── agent_workspaces/                    # Agent workspaces
 │   ├── mc-architect/
 │   │   └── AGENTS.md

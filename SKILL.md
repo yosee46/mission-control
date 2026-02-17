@@ -15,11 +15,17 @@ For automated team creation, use the `setup_mission` tool:
 ```bash
 setup_mission <project> <mission> "<goal>" --roles role1,role2,...
 
+# With dynamic role specializations
+setup_mission <project> <mission> "<goal>" --roles analyst,writer \
+  --role-config roles.json
+
 # With profile
 setup_mission <project> <mission> "<goal>" --roles role1,role2,... --profile <name>
 ```
 
-This creates: MC project + mission, openclaw agents with role-specific AGENTS.md, MC fleet registration, and cron jobs — all in one command.
+This creates: MC project + mission, openclaw agents with AGENTS.md, MC fleet registration, and cron jobs — all in one command.
+
+**Dynamic Role Composition:** Use `--role-config roles.json` to define custom role descriptions and specializations. The architect agent can generate this file during mission planning to create optimally specialized teams. Without `--role-config`, agents use builtin descriptions.
 
 Agents are named `{project}-{mission}-{role}` (e.g., `ec-site-prototype-coder`). Each mission gets its own agents — agents are never reused across missions.
 

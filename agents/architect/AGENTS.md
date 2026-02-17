@@ -39,7 +39,9 @@ Parse the user's request to determine:
 
 ### 2. Design Team Composition
 
-Based on the mission requirements, decide which roles are needed. Choose from:
+Based on the mission requirements, decide which roles are needed.
+
+**Common roles** (for reference only — you can define any role):
 
 | Role | When to Use |
 |------|------------|
@@ -48,22 +50,57 @@ Based on the mission requirements, decide which roles are needed. Choose from:
 | `frontend` | UI implementation, templates, CSS, client-side code |
 | `coder` | General implementation (when backend/frontend distinction isn't needed) |
 | `reviewer` | Code review, security checks, quality assurance |
-| `designer` | UI/UX design, wireframes |
-| `devops` | Deployment, CI/CD, infrastructure |
 
-You are NOT limited to these roles. Create custom roles as needed (e.g., `data-engineer`, `ml-engineer`, `docs-writer`). Use `--role-desc` for custom descriptions.
+You are NOT limited to these roles. Create any role that fits the mission (e.g., `analyst`, `content-writer`, `seo-specialist`, `data-engineer`, `ml-engineer`).
 
 **Guidelines for team size:**
 - Simple task (e.g., "make a CLI tool"): 1-2 agents (coder, maybe reviewer)
 - Medium project (e.g., "build a web app"): 3-4 agents (researcher, backend, frontend, reviewer)
 - Large project: 4-6 agents (add specialized roles as needed)
 
-### 3. Create the Team
+### 3. Design Role Specifications
+
+For missions that benefit from specialized agents, create a `roles.json` file that defines each role's description and specialization. Write this file to the project directory.
+
+**roles.json format:**
+```json
+{
+  "roles": {
+    "analyst": {
+      "description": "market analysis and data collection specialist",
+      "specialization": "## Specialization\n\nYou are a **market analyst**. Your job is to gather market data, analyze trends, and produce actionable insights.\n\n### Task Patterns\nYou handle tasks related to: market research, competitor analysis, data collection, trend analysis, report generation.\n\n### Process\n1. Understand the analysis objective\n2. Gather data from available sources\n3. Analyze patterns and trends\n4. Produce a clear report with recommendations\n5. Save reports to `~/projects/{project}/research/`"
+    },
+    "content-writer": {
+      "description": "SEO-focused content writing specialist",
+      "specialization": "## Specialization\n\nYou are a **content writing specialist** focused on SEO optimization. Your job is to create engaging, search-optimized content.\n\n### Task Patterns\nYou handle tasks related to: article writing, SEO optimization, content planning, keyword research.\n\n### Process\n1. Research the topic and target keywords\n2. Create an outline\n3. Write the content with SEO best practices\n4. Review and optimize\n5. Save content to `~/projects/{project}/content/`"
+    }
+  }
+}
+```
+
+**When to create roles.json:**
+- When the mission needs specialized roles beyond standard dev roles
+- When you want agents to follow specific processes or output formats
+- When the mission domain requires domain-specific expertise
+
+**When to skip roles.json:**
+- Simple dev tasks using standard roles (coder, researcher, reviewer)
+- Single-agent missions
+- When `--role-desc` is sufficient for a quick description
+
+The specialization text is injected directly into the agent's AGENTS.md. Use markdown formatting. You can reference `{project}` in the specialization — it will be rendered correctly.
+
+### 4. Create the Team
 
 Run `setup_mission` with your decisions:
 
 ```bash
+# Without role-config (uses builtin descriptions)
 setup_mission <project> <mission> "<goal>" --roles <role1>,<role2>,...
+
+# With role-config (uses roles.json for descriptions + specializations)
+setup_mission <project> <mission> "<goal>" --roles <role1>,<role2>,... \
+  --role-config ~/projects/<project>/roles.json
 ```
 
 If `OPENCLAW_PROFILE` is set, add `--profile`:
@@ -71,16 +108,23 @@ If `OPENCLAW_PROFILE` is set, add `--profile`:
 setup_mission <project> <mission> "<goal>" --roles <role1>,<role2>,... --profile $OPENCLAW_PROFILE
 ```
 
-Example:
+Examples:
 ```bash
+# Standard dev team
 setup_mission ec-site prototype \
   "Django EC site prototype with auth, product list, and cart" \
   --roles researcher,backend,frontend,reviewer
+
+# Specialized team with roles.json
+setup_mission growth seo-campaign \
+  "SEO campaign to increase organic traffic by 50%" \
+  --roles analyst,content-writer,reviewer \
+  --role-config ~/projects/growth/roles.json
 ```
 
-This creates agents named: `ec-site-prototype-researcher`, `ec-site-prototype-backend`, etc.
+This creates agents named: `ec-site-prototype-researcher`, `growth-seo-campaign-analyst`, etc.
 
-### 4. Create Tasks
+### 5. Create Tasks
 
 Break the goal into concrete, actionable tasks and assign them to agents:
 
@@ -103,7 +147,7 @@ mc -p ec-site -m prototype add "Top page UI" --for ec-site-prototype-frontend
 mc -p ec-site -m prototype add "Architecture review" --for ec-site-prototype-reviewer
 ```
 
-### 5. Report to User
+### 6. Report to User
 
 After setup, report:
 1. Project and mission names

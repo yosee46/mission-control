@@ -11,10 +11,11 @@ Cleanup: mc -p <project> -m <mission> mission complete
 Usage:
   setup_mission <project> <mission> "<goal>" --roles role1,role2,...
   setup_mission ec-site prototype "Django EC prototype" --roles researcher,backend,frontend,reviewer
-  setup_mission my-app mvp "Build MVP" --roles coder --role-desc "Full-stack Python developer"
+  setup_mission my-app mvp "Build MVP" --roles analyst --role-config roles.json
 """
 
 import argparse
+import json
 import os
 import subprocess
 import sys
@@ -24,6 +25,21 @@ _PROFILE = os.environ.get("OPENCLAW_PROFILE", "")
 CONFIG_DIR = Path.home() / f".openclaw-{_PROFILE}" if _PROFILE else Path.home() / ".openclaw"
 TEMPLATE_DIR = CONFIG_DIR / "mc-templates"
 PROJECTS_DIR = Path.home() / "projects"
+
+# Fallback descriptions when no role-config is provided
+BUILTIN_DESCRIPTIONS = {
+    "researcher": "research and analysis specialist — technology investigation, library evaluation, best practices research",
+    "coder": "implementation specialist — writing code, tests, and fixing bugs",
+    "backend": "backend developer — server-side implementation, API design, database work",
+    "frontend": "frontend developer — UI implementation, templates, CSS, client-side logic",
+    "developer": "full-stack developer — implementation across the entire stack",
+    "engineer": "software engineer — design and implementation of system components",
+    "reviewer": "code reviewer and quality specialist — code review, security checks, quality assurance",
+    "qa": "quality assurance specialist — testing, validation, and quality checks",
+    "designer": "design specialist — UI/UX design, wireframes, and visual design",
+    "devops": "DevOps engineer — deployment, infrastructure, CI/CD pipelines",
+    "lead": "team lead — coordination, architecture decisions, and task management",
+}
 
 
 def run(cmd: str, check: bool = True, capture: bool = False) -> subprocess.CompletedProcess:
@@ -40,28 +56,30 @@ def run(cmd: str, check: bool = True, capture: bool = False) -> subprocess.Compl
     return result
 
 
-def load_template(role: str) -> str:
-    """Load role-specific template, falling back to base.md."""
-    # Map common role names to template files
-    role_template_map = {
-        "researcher": "researcher.md",
-        "research": "researcher.md",
-        "coder": "coder.md",
-        "backend": "coder.md",
-        "frontend": "coder.md",
-        "developer": "coder.md",
-        "engineer": "coder.md",
-        "reviewer": "reviewer.md",
-        "review": "reviewer.md",
-        "qa": "reviewer.md",
-    }
+def safe_render(template: str, **kwargs: str) -> str:
+    """Render template using str.replace() — safe for content containing braces."""
+    result = template
+    for key, value in kwargs.items():
+        result = result.replace(f"{{{key}}}", value)
+    return result
 
-    template_file = role_template_map.get(role, None)
 
-    if template_file and (TEMPLATE_DIR / template_file).exists():
-        return (TEMPLATE_DIR / template_file).read_text()
+def load_role_config(path: str) -> dict:
+    """Load roles.json file and return the roles dict."""
+    p = Path(path)
+    if not p.exists():
+        print(f"ERROR: Role config not found: {path}", file=sys.stderr)
+        sys.exit(1)
+    try:
+        data = json.loads(p.read_text())
+    except json.JSONDecodeError as e:
+        print(f"ERROR: Invalid JSON in {path}: {e}", file=sys.stderr)
+        sys.exit(1)
+    return data.get("roles", {})
 
-    # Fallback to base template
+
+def load_template() -> str:
+    """Load base.md template."""
     base_path = TEMPLATE_DIR / "base.md"
     if base_path.exists():
         return base_path.read_text()
@@ -72,11 +90,14 @@ def load_template(role: str) -> str:
 ## Identity
 You are **{agent_id}**, a {role_description} working on project **{project}**.
 
-## Mission
+## Mission Context
 - **Project**: {project}
 - **Mission**: {mission}
 - **Goal**: {goal}
 - **Working Directory**: ~/projects/{project}/
+- **Role**: {role}
+
+{role_specialization}
 
 ## Workflow
 1. `mc -p {project} -m {mission} checkin`
@@ -87,25 +108,20 @@ You are **{agent_id}**, a {role_description} working on project **{project}**.
 """
 
 
-def generate_role_description(role: str, custom_desc: str | None = None) -> str:
-    """Generate a role description from role name or custom description."""
+def generate_role_description(role: str, role_config: dict | None = None, custom_desc: str | None = None) -> str:
+    """Generate a role description from role-config, custom description, or builtin fallback."""
     if custom_desc:
         return custom_desc
+    if role_config and role in role_config:
+        return role_config[role].get("description", f"{role} specialist")
+    return BUILTIN_DESCRIPTIONS.get(role, f"{role} specialist")
 
-    descriptions = {
-        "researcher": "research and analysis specialist — technology investigation, library evaluation, best practices research",
-        "coder": "implementation specialist — writing code, tests, and fixing bugs",
-        "backend": "backend developer — server-side implementation, API design, database work",
-        "frontend": "frontend developer — UI implementation, templates, CSS, client-side logic",
-        "developer": "full-stack developer — implementation across the entire stack",
-        "engineer": "software engineer — design and implementation of system components",
-        "reviewer": "code reviewer and quality specialist — code review, security checks, quality assurance",
-        "qa": "quality assurance specialist — testing, validation, and quality checks",
-        "designer": "design specialist — UI/UX design, wireframes, and visual design",
-        "devops": "DevOps engineer — deployment, infrastructure, CI/CD pipelines",
-        "lead": "team lead — coordination, architecture decisions, and task management",
-    }
-    return descriptions.get(role, f"{role} specialist")
+
+def generate_role_specialization(role: str, role_config: dict | None = None) -> str:
+    """Get role specialization from role-config. Returns empty string if not defined."""
+    if role_config and role in role_config:
+        return role_config[role].get("specialization", "")
+    return ""
 
 
 def generate_agents_md(
@@ -114,19 +130,25 @@ def generate_agents_md(
     project: str,
     mission: str,
     goal: str,
+    role_config: dict | None = None,
     role_desc: str | None = None,
 ) -> str:
     """Generate AGENTS.md for a specific agent by filling template placeholders."""
-    template = load_template(role)
-    role_description = generate_role_description(role, role_desc)
+    template = load_template()
+    role_description = generate_role_description(role, role_config, role_desc)
+    role_specialization = generate_role_specialization(role, role_config)
 
-    return template.format(
+    # role_specialization must be replaced first so that placeholders
+    # like {project} inside the specialization text are also rendered.
+    return safe_render(
+        template,
+        role_specialization=role_specialization,
+        role_description=role_description,
         agent_id=agent_id,
         role=role,
         project=project,
         mission=mission,
         goal=goal,
-        role_description=role_description,
     )
 
 
@@ -166,6 +188,10 @@ def main():
     parser.add_argument(
         "--roles", required=True,
         help="Comma-separated list of roles (e.g., researcher,backend,frontend,reviewer)"
+    )
+    parser.add_argument(
+        "--role-config",
+        help="Path to roles.json defining role descriptions and specializations"
     )
     parser.add_argument(
         "--role-desc",
@@ -218,11 +244,18 @@ def main():
         print("ERROR: At least one role is required", file=sys.stderr)
         sys.exit(1)
 
+    # Load role config if provided
+    role_config = None
+    if args.role_config:
+        role_config = load_role_config(args.role_config)
+
     print(f"═══ OMOS Team Setup ═══")
     print(f"  Project:  {project}")
     print(f"  Mission:  {mission}")
     print(f"  Goal:     {goal}")
     print(f"  Roles:    {', '.join(roles)}")
+    if args.role_config:
+        print(f"  Config:   {args.role_config}")
     if profile:
         print(f"  Profile:  {profile}")
     print(f"  Cron:     {cron_schedule}")
@@ -273,6 +306,7 @@ def main():
             project=project,
             mission=mission,
             goal=goal,
+            role_config=role_config,
             role_desc=args.role_desc if len(roles) == 1 else None,
         )
         agents_md_path = ws_dir / "AGENTS.md"
@@ -344,6 +378,8 @@ def main():
     print(f"  Project:    {mc_prefix} -p {project}")
     print(f"  Mission:    {mc_prefix} -p {project} -m {mission}")
     print(f"  Project:    {project_dir}/")
+    if args.role_config:
+        print(f"  Roles:      {args.role_config}")
     if profile:
         print(f"  Profile:    {profile}")
     print(f"  Agents:     {len(agents_created)}")

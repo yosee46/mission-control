@@ -63,12 +63,10 @@ echo -e "  ${G}OK${N} — $BIN_DIR/setup_mission"
 echo -e "${C}[4/7] Installing agent templates...${N}"
 
 mkdir -p "$TEMPLATE_DIR"
-for tmpl in base.md researcher.md coder.md reviewer.md; do
-  if [ -f "$SCRIPT_DIR/agents/templates/$tmpl" ]; then
-    cp "$SCRIPT_DIR/agents/templates/$tmpl" "$TEMPLATE_DIR/$tmpl"
-  fi
-done
-echo -e "  ${G}OK${N} — $TEMPLATE_DIR/"
+if [ -f "$SCRIPT_DIR/agents/templates/base.md" ]; then
+  cp "$SCRIPT_DIR/agents/templates/base.md" "$TEMPLATE_DIR/base.md"
+fi
+echo -e "  ${G}OK${N} — $TEMPLATE_DIR/base.md"
 
 # ─── 5. Register mc-architect agent ───
 echo -e "${C}[5/7] Registering mc-architect agent...${N}"
