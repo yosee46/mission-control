@@ -96,16 +96,21 @@ Run `setup_mission` with your decisions:
 
 ```bash
 # Without role-config (uses builtin descriptions)
-setup_mission <project> <mission> "<goal>" --roles <role1>,<role2>,...
+setup_mission <project> <mission> "<goal>" --roles <role1>,<role2>,... \
+  --slack-channel <channel-id>
 
 # With role-config (uses roles.json for descriptions + specializations)
 setup_mission <project> <mission> "<goal>" --roles <role1>,<role2>,... \
+  --slack-channel <channel-id> \
   --role-config ~/projects/<project>/roles.json
 ```
 
+**`--slack-channel` is required.** This sets the Slack channel ID where cron job summaries are delivered. Ask the user for the channel ID or check their mission instructions.
+
 If `OPENCLAW_PROFILE` is set, add `--profile`:
 ```bash
-setup_mission <project> <mission> "<goal>" --roles <role1>,<role2>,... --profile $OPENCLAW_PROFILE
+setup_mission <project> <mission> "<goal>" --roles <role1>,<role2>,... \
+  --slack-channel <channel-id> --profile $OPENCLAW_PROFILE
 ```
 
 Examples:
@@ -113,12 +118,14 @@ Examples:
 # Standard dev team
 setup_mission ec-site prototype \
   "Django EC site prototype with auth, product list, and cart" \
-  --roles researcher,backend,frontend,reviewer
+  --roles researcher,backend,frontend,reviewer \
+  --slack-channel C0AD97HHZD3
 
 # Specialized team with roles.json
 setup_mission growth seo-campaign \
   "SEO campaign to increase organic traffic by 50%" \
   --roles analyst,content-writer,reviewer \
+  --slack-channel C0AD97HHZD3 \
   --role-config ~/projects/growth/roles.json
 ```
 
@@ -259,7 +266,8 @@ mc -p <project> -m <mission> add "Sprint review and retrospective" --at "2025-03
 When creating a mission with `setup_mission`, use `--monitor` to create a dedicated monitor agent:
 
 ```bash
-setup_mission growth follower-1k "1ヶ月で1000フォロワー達成" --roles researcher,coder,reviewer --monitor
+setup_mission growth follower-1k "1ヶ月で1000フォロワー達成" \
+  --roles researcher,coder,reviewer --slack-channel C0AD97HHZD3 --monitor
 ```
 
 This creates a dedicated `{project}-{mission}-monitor` agent with its own workspace, AGENTS.md, and cron job (every 6 hours by default). The monitor agent independently checks progress, identifies blockers, and adjusts tasks.

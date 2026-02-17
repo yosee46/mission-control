@@ -161,7 +161,8 @@ def generate_cron_message(agent_id: str, project: str, mission: str, profile_env
         f"if output contains MISSION_PAUSED, MISSION_COMPLETED, or MISSION_ARCHIVED then stop. "
         f"Otherwise: {mc} -p {project} -m {mission} list --mine --status pending && "
         f"claim and work on your highest-priority task. "
-        f"If no tasks, check {mc} -p {project} -m {mission} list --status pending for unclaimed work."
+        f"If no tasks, check {mc} -p {project} -m {mission} list --status pending for unclaimed work. "
+        f"日本語で応答すること。"
     )
 
 
@@ -198,7 +199,8 @@ def generate_monitor_cron_message(agent_id: str, project: str, mission: str, pro
     """Generate the cron message for the monitor agent."""
     mc = f"{profile_env}mc" if profile_env else "mc"
     return (
-        f"You are {agent_id}. Execute your monitoring workflow as described in your AGENTS.md."
+        f"You are {agent_id}. Execute your monitoring workflow as described in your AGENTS.md. "
+        f"日本語で応答すること。"
     )
 
 
@@ -236,6 +238,10 @@ def main():
     parser.add_argument(
         "--monitor-cron", default="0 */6 * * *",
         help="Cron schedule for monitoring (default: every 6 hours)"
+    )
+    parser.add_argument(
+        "--slack-channel", required=True,
+        help="Slack channel ID for cron delivery (e.g., C0AD97HHZD3)"
     )
     parser.add_argument(
         "--dry-run", action="store_true",
@@ -283,6 +289,7 @@ def main():
     if profile:
         print(f"  Profile:  {profile}")
     print(f"  Cron:     {cron_schedule}")
+    print(f"  Slack:    {args.slack_channel}")
     print()
 
     if dry_run:
@@ -367,6 +374,7 @@ def main():
                 f'--name {agent_id} '
                 f'--cron "{cron_schedule}" '
                 f'--session isolated '
+                f'--announce --channel slack --to {args.slack_channel} '
                 f'--message "{escaped_msg}"'.strip(),
                 check=False,
             )
@@ -430,6 +438,7 @@ def main():
                 f'--name {monitor_id} '
                 f'--cron "{monitor_schedule}" '
                 f'--session isolated '
+                f'--announce --channel slack --to {args.slack_channel} '
                 f'--message "{escaped_msg}"'.strip(),
                 check=False,
             )
