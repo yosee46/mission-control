@@ -5,6 +5,9 @@ setup_mission — OMOS Team Composition Tool
 Creates MC project + mission, then registers openclaw agents with
 role-specific AGENTS.md and cron jobs for each team member.
 
+Every mission gets three supervisor agents (monitor, brain, escalator)
+in addition to the worker agents specified by --roles.
+
 Agents are named {project}-{mission}-{role} to ensure isolation per mission.
 Cleanup: mc -p <project> -m <mission> mission complete
 
@@ -176,11 +179,12 @@ def load_monitor_template() -> str:
     if monitor_path.exists():
         return monitor_path.read_text()
 
-    # Inline fallback if template not installed
+    # Inline fallback — observation-only monitor
     return """# {agent_id}
 
 ## Identity
-You are **{agent_id}**, a mission progress monitor, working on project **{project}**.
+You are **{agent_id}**, a mission observer (sensor), working on project **{project}**.
+Your role is to observe and report anomalies to the brain agent. You do NOT make judgment calls or create tasks.
 
 ## Mission Context
 - **Project**: {project}
@@ -192,14 +196,47 @@ You are **{agent_id}**, a mission progress monitor, working on project **{projec
 ## Monitoring Workflow
 0. Cron Guard: `cron_id=$(openclaw cron list --json | python3 -c "import sys,json; [print(j['id']) for j in json.load(sys.stdin).get('jobs',[]) if j.get('name')=='{agent_id}']") && openclaw cron disable "$cron_id" && echo "[CRON_GUARD] {agent_id}: cron disabled — session started"`
 1. `mc -p {project} -m {mission} checkin` — if PAUSED/COMPLETED/ARCHIVED, re-enable cron and stop
-2. `mc -p {project} -m {mission} mission status` — review state and user instructions
-3. `mc -p {project} -m {mission} board` — check task progress
-4. `mc -p {project} -m {mission} inbox --unread` — check messages
-5. Analyze: blocked agents → reassign; stale tasks → message; stale crons → re-enable; all done → checkpoint
-6. Escalate if needed: `mc -p {project} -m {mission} add "Human: <reason>" --for {project}-{mission}-escalator`
-7. Re-enable cron: `openclaw cron enable "$cron_id" && echo "[CRON_GUARD] {agent_id}: cron re-enabled"`
+2. `mc -p {project} -m {mission} board` — check task progress
+3. `mc -p {project} fleet` — check agent statuses for stale detection
+4. `mc -p {project} -m {mission} inbox --unread` — check messages from brain
+5. Observe and report: blocked tasks → msg brain; stale tasks → msg brain; all done → msg brain; stale agent crons → re-enable directly
+6. Re-enable cron: `openclaw cron enable "$cron_id" && echo "[CRON_GUARD] {agent_id}: cron re-enabled"`
 
 {monitor_policy}
+"""
+
+
+def load_brain_template() -> str:
+    """Load brain.md template."""
+    brain_path = TEMPLATE_DIR / "brain.md"
+    if brain_path.exists():
+        return brain_path.read_text()
+
+    # Inline fallback — brain (commander) agent
+    return """# {agent_id}
+
+## Identity
+You are **{agent_id}**, the mission brain (commander), working on project **{project}**.
+You receive observation reports from the monitor agent and make all judgment and action decisions.
+
+## Mission Context
+- **Project**: {project}
+- **Mission**: {mission}
+- **Goal**: {goal}
+- **Working Directory**: {config_dir}/projects/{project}/
+- **Role**: brain
+
+## Brain Workflow
+0. Cron Guard: `cron_id=$(openclaw cron list --json | python3 -c "import sys,json; [print(j['id']) for j in json.load(sys.stdin).get('jobs',[]) if j.get('name')=='{agent_id}']") && openclaw cron disable "$cron_id" && echo "[CRON_GUARD] {agent_id}: cron disabled — session started"`
+1. `mc -p {project} -m {mission} checkin` — if PAUSED/COMPLETED/ARCHIVED, re-enable cron and stop
+2. `mc -p {project} -m {mission} mission status` — review state and user instructions
+3. `mc -p {project} -m {mission} board` — check task progress
+4. `mc -p {project} -m {mission} inbox --unread` — check monitor reports and agent questions
+5. Judge and act: all tasks done → checkpoint or follow-up; user instructions → tasks; monitor alerts → reassign; escalation → escalator task; agent questions → answer
+6. Task assignment: `mc -p {project} -m {mission} add "desc" --for <agent>` + re-enable target cron
+7. Re-enable cron: `openclaw cron enable "$cron_id" && echo "[CRON_GUARD] {agent_id}: cron re-enabled"`
+
+{brain_policy}
 """
 
 
@@ -235,27 +272,97 @@ You are the **sole channel** between the AI agent team and the human operator.
 1. `mc -p {project} -m {mission} checkin` — if PAUSED/COMPLETED/ARCHIVED, re-enable cron and stop
 2. `mc -p {project} -m {mission} mission status` — relay human instructions to requesting agents
 3. `mc -p {project} -m {mission} list --mine --status pending` — process escalation tasks
-4. No tasks → cron stays disabled (monitor will re-enable when needed)
+4. No tasks → cron stays disabled (brain will re-enable when needed)
 5. After processing tasks: `openclaw cron enable "$cron_id" && echo "[CRON_GUARD] {agent_id}: cron re-enabled"`
 """
 
 
+def generate_monitor_cron_message(agent_id: str, project: str, mission: str, profile_env: str = "") -> str:
+    """Generate the cron message for the monitor agent."""
+    return (
+        f"You are {agent_id}. Execute your monitoring workflow as described in your AGENTS.md. "
+        f"日本語で応答すること。"
+    )
+
+
+def generate_brain_cron_message(agent_id: str, project: str, mission: str, profile_env: str = "") -> str:
+    """Generate the cron message for the brain agent."""
+    return (
+        f"You are {agent_id}. Execute your brain workflow as described in your AGENTS.md. "
+        f"日本語で応答すること。"
+    )
+
+
 def generate_escalator_cron_message(agent_id: str, project: str, mission: str, profile_env: str = "") -> str:
     """Generate the cron message for the escalator agent."""
-    mc = f"{profile_env}mc" if profile_env else "mc"
     return (
         f"You are {agent_id}. Execute your escalation workflow as described in your AGENTS.md. "
         f"日本語で応答すること。"
     )
 
 
-def generate_monitor_cron_message(agent_id: str, project: str, mission: str, profile_env: str = "") -> str:
-    """Generate the cron message for the monitor agent."""
-    mc = f"{profile_env}mc" if profile_env else "mc"
-    return (
-        f"You are {agent_id}. Execute your monitoring workflow as described in your AGENTS.md. "
-        f"日本語で応答すること。"
-    )
+def register_agent(
+    agent_id: str,
+    role: str,
+    project: str,
+    ws_dir: Path,
+    agents_md: str,
+    cron_schedule: str,
+    cron_msg: str,
+    slack_channel: str,
+    oc_profile_flag: str,
+    profile_env: str,
+    dry_run: bool,
+    model: str | None = None,
+) -> None:
+    """Register a single agent: workspace, AGENTS.md, openclaw agent, MC fleet, cron."""
+    # a. Create workspace
+    print(f"  Creating workspace: {ws_dir}")
+    if not dry_run:
+        ws_dir.mkdir(parents=True, exist_ok=True)
+
+    # b. Write AGENTS.md
+    agents_md_path = ws_dir / "AGENTS.md"
+    print(f"  Writing AGENTS.md")
+    if not dry_run:
+        agents_md_path.write_text(agents_md)
+
+    # c. Register openclaw agent
+    print(f"  Registering openclaw agent: {agent_id}")
+    model_flag = f"--model {model} " if model else ""
+    if not dry_run:
+        run(
+            f"openclaw {oc_profile_flag} agents add {agent_id} "
+            f"--workspace {ws_dir} "
+            f"{model_flag}"
+            f"--non-interactive".strip(),
+            check=False,
+        )
+
+    # d. Register in MC fleet
+    print(f"  Registering in MC fleet")
+    if not dry_run:
+        run(
+            f"{profile_env}MC_AGENT={agent_id} mc -p {project} register {agent_id} --role {role}",
+            check=False,
+        )
+
+    # e. Add cron job
+    print(f"  Adding cron job ({cron_schedule})")
+    if not dry_run:
+        escaped_msg = cron_msg.replace('"', '\\"')
+        run(
+            f'openclaw {oc_profile_flag} cron add '
+            f'--agent {agent_id} '
+            f'--name {agent_id} '
+            f'--cron "{cron_schedule}" '
+            f'--session isolated '
+            f'--announce --channel slack --to {slack_channel} '
+            f'--message "{escaped_msg}"'.strip(),
+            check=False,
+        )
+
+    print(f"  OK — {agent_id} ready")
 
 
 def main():
@@ -286,12 +393,8 @@ def main():
         help="OpenClaw profile name (overrides OPENCLAW_PROFILE env var)"
     )
     parser.add_argument(
-        "--monitor", action="store_true",
-        help="Create a dedicated monitor agent for this mission (checks progress every 6h)"
-    )
-    parser.add_argument(
-        "--monitor-cron", default="0 */6 * * *",
-        help="Cron schedule for monitoring (default: every 6 hours)"
+        "--supervisor-cron", default="0 */6 * * *",
+        help="Cron schedule for monitor and brain agents (default: every 6 hours)"
     )
     parser.add_argument(
         "--slack-channel", required=True,
@@ -303,7 +406,11 @@ def main():
     )
     parser.add_argument(
         "--monitor-policy",
-        help="Monitoring policy text (how monitor judges task creation, course correction)"
+        help="Additional monitoring policy text for the monitor agent"
+    )
+    parser.add_argument(
+        "--brain-policy",
+        help="Brain policy text (how brain judges task creation, course correction)"
     )
     parser.add_argument(
         "--escalation-policy",
@@ -335,6 +442,7 @@ def main():
     goal = args.goal
     roles = [r.strip() for r in args.roles.split(",") if r.strip()]
     cron_schedule = args.cron
+    supervisor_schedule = args.supervisor_cron
     dry_run = args.dry_run
 
     if not roles:
@@ -356,6 +464,7 @@ def main():
     if profile:
         print(f"  Profile:  {profile}")
     print(f"  Cron:     {cron_schedule}")
+    print(f"  Supervisor: {supervisor_schedule}")
     print(f"  Slack:    {args.slack_channel}")
     print(f"  Slack User: {args.slack_user_id}")
     print()
@@ -364,13 +473,13 @@ def main():
         print("[DRY RUN] No changes will be made.\n")
 
     # ─── Step 1: Create MC project ───
-    print(f"[1/5] Creating MC project '{project}'...")
+    print(f"[1/6] Creating MC project '{project}'...")
     if not dry_run:
         run(f'{profile_env}mc -p {project} init')
     print(f"  OK")
 
     # ─── Step 2: Create mission ───
-    print(f"[2/5] Creating mission '{mission}'...")
+    print(f"[2/6] Creating mission '{mission}'...")
     if not dry_run:
         escaped_goal = goal.replace("'", "'\\''")
         run(f"{profile_env}mc -p {project} mission create {mission} -d '{escaped_goal}'")
@@ -378,13 +487,13 @@ def main():
 
     # ─── Step 3: Create project directory ───
     project_dir = projects_dir / project
-    print(f"[3/5] Creating project directory '{project_dir}'...")
+    print(f"[3/6] Creating project directory '{project_dir}'...")
     if not dry_run:
         project_dir.mkdir(parents=True, exist_ok=True)
     print(f"  OK")
 
-    # ─── Step 4: Register each agent ───
-    print(f"[4/5] Registering agents...")
+    # ─── Step 4: Register worker agents ───
+    print(f"[4/6] Registering worker agents...")
     agents_created = []
 
     for role in roles:
@@ -393,12 +502,6 @@ def main():
 
         print(f"\n  --- {agent_id} ---")
 
-        # a. Create workspace directory
-        print(f"  Creating workspace: {ws_dir}")
-        if not dry_run:
-            ws_dir.mkdir(parents=True, exist_ok=True)
-
-        # b. Generate AGENTS.md
         agents_md = generate_agents_md(
             agent_id=agent_id,
             role=role,
@@ -409,187 +512,131 @@ def main():
             role_desc=args.role_desc if len(roles) == 1 else None,
             config_dir=str(CONFIG_DIR),
         )
-        agents_md_path = ws_dir / "AGENTS.md"
-        print(f"  Writing AGENTS.md")
-        if not dry_run:
-            agents_md_path.write_text(agents_md)
-
-        # c. Register openclaw agent
-        print(f"  Registering openclaw agent: {agent_id}")
-        if not dry_run:
-            run(
-                f"openclaw {oc_profile_flag} agents add {agent_id} "
-                f"--workspace {ws_dir} "
-                f"--non-interactive".strip(),
-                check=False,
-            )
-
-        # d. Register in MC fleet
-        print(f"  Registering in MC fleet")
-        if not dry_run:
-            run(
-                f"{profile_env}MC_AGENT={agent_id} mc -p {project} register {agent_id} --role {role}",
-                check=False,
-            )
-
-        # e. Add cron job
         cron_msg = generate_cron_message(agent_id, project, mission, profile_env)
-        print(f"  Adding cron job")
-        if not dry_run:
-            escaped_msg = cron_msg.replace('"', '\\"')
-            run(
-                f'openclaw {oc_profile_flag} cron add '
-                f'--agent {agent_id} '
-                f'--name {agent_id} '
-                f'--cron "{cron_schedule}" '
-                f'--session isolated '
-                f'--announce --channel slack --to {args.slack_channel} '
-                f'--message "{escaped_msg}"'.strip(),
-                check=False,
-            )
 
+        register_agent(
+            agent_id=agent_id,
+            role=role,
+            project=project,
+            ws_dir=ws_dir,
+            agents_md=agents_md,
+            cron_schedule=cron_schedule,
+            cron_msg=cron_msg,
+            slack_channel=args.slack_channel,
+            oc_profile_flag=oc_profile_flag,
+            profile_env=profile_env,
+            dry_run=dry_run,
+        )
         agents_created.append(agent_id)
-        print(f"  OK — {agent_id} ready")
 
-    # ─── Step 5: Register monitor agent (optional) ───
-    if args.monitor:
-        monitor_id = f"{project}-{mission}-monitor"
-        monitor_schedule = args.monitor_cron
-        ws_dir = CONFIG_DIR / "agent_workspaces" / monitor_id
+    # ─── Step 5: Register supervisor agents (always: monitor, brain, escalator) ───
+    print(f"\n[5/6] Registering supervisor agents...")
 
-        print(f"\n[5/6] Registering monitor agent ({monitor_id})...")
+    # --- Monitor ---
+    monitor_id = f"{project}-{mission}-monitor"
+    ws_dir = CONFIG_DIR / "agent_workspaces" / monitor_id
+    print(f"\n  --- {monitor_id} ---")
 
-        # a. Create workspace
-        print(f"  Creating workspace: {ws_dir}")
-        if not dry_run:
-            ws_dir.mkdir(parents=True, exist_ok=True)
+    monitor_template = load_monitor_template()
+    monitor_md = safe_render(
+        monitor_template,
+        agent_id=monitor_id,
+        project=project,
+        mission=mission,
+        goal=goal,
+        monitor_policy=args.monitor_policy or "",
+        slack_user_id=args.slack_user_id,
+        config_dir=str(CONFIG_DIR),
+    )
+    monitor_msg = generate_monitor_cron_message(monitor_id, project, mission, profile_env)
 
-        # b. Generate AGENTS.md from monitor template
-        monitor_template = load_monitor_template()
-        agents_md = safe_render(
-            monitor_template,
-            agent_id=monitor_id,
-            project=project,
-            mission=mission,
-            goal=goal,
-            monitor_policy=args.monitor_policy or "",
-            slack_user_id=args.slack_user_id,
-            config_dir=str(CONFIG_DIR),
-        )
-        agents_md_path = ws_dir / "AGENTS.md"
-        print(f"  Writing AGENTS.md")
-        if not dry_run:
-            agents_md_path.write_text(agents_md)
+    register_agent(
+        agent_id=monitor_id,
+        role="monitor",
+        project=project,
+        ws_dir=ws_dir,
+        agents_md=monitor_md,
+        cron_schedule=supervisor_schedule,
+        cron_msg=monitor_msg,
+        slack_channel=args.slack_channel,
+        oc_profile_flag=oc_profile_flag,
+        profile_env=profile_env,
+        dry_run=dry_run,
+        model=SUPERVISOR_MODEL,
+    )
+    agents_created.append(monitor_id)
 
-        # c. Register openclaw agent
-        print(f"  Registering openclaw agent: {monitor_id}")
-        if not dry_run:
-            run(
-                f"openclaw {oc_profile_flag} agents add {monitor_id} "
-                f"--workspace {ws_dir} "
-                f"--model {SUPERVISOR_MODEL} "
-                f"--non-interactive".strip(),
-                check=False,
-            )
+    # --- Brain ---
+    brain_id = f"{project}-{mission}-brain"
+    ws_dir = CONFIG_DIR / "agent_workspaces" / brain_id
+    print(f"\n  --- {brain_id} ---")
 
-        # d. Register in MC fleet
-        print(f"  Registering in MC fleet")
-        if not dry_run:
-            run(
-                f"{profile_env}MC_AGENT={monitor_id} mc -p {project} register {monitor_id} --role monitor",
-                check=False,
-            )
+    brain_template = load_brain_template()
+    brain_md = safe_render(
+        brain_template,
+        agent_id=brain_id,
+        project=project,
+        mission=mission,
+        goal=goal,
+        brain_policy=args.brain_policy or "",
+        slack_user_id=args.slack_user_id,
+        config_dir=str(CONFIG_DIR),
+    )
+    brain_msg = generate_brain_cron_message(brain_id, project, mission, profile_env)
 
-        # e. Add cron job
-        monitor_msg = generate_monitor_cron_message(monitor_id, project, mission, profile_env)
-        print(f"  Adding cron job ({monitor_schedule})")
-        if not dry_run:
-            escaped_msg = monitor_msg.replace('"', '\\"')
-            run(
-                f'openclaw {oc_profile_flag} cron add '
-                f'--agent {monitor_id} '
-                f'--name {monitor_id} '
-                f'--cron "{monitor_schedule}" '
-                f'--session isolated '
-                f'--announce --channel slack --to {args.slack_channel} '
-                f'--message "{escaped_msg}"'.strip(),
-                check=False,
-            )
+    register_agent(
+        agent_id=brain_id,
+        role="brain",
+        project=project,
+        ws_dir=ws_dir,
+        agents_md=brain_md,
+        cron_schedule=supervisor_schedule,
+        cron_msg=brain_msg,
+        slack_channel=args.slack_channel,
+        oc_profile_flag=oc_profile_flag,
+        profile_env=profile_env,
+        dry_run=dry_run,
+        model=SUPERVISOR_MODEL,
+    )
+    agents_created.append(brain_id)
 
-        agents_created.append(monitor_id)
-        print(f"  OK — {monitor_id} ready")
+    # --- Escalator ---
+    escalator_id = f"{project}-{mission}-escalator"
+    ws_dir = CONFIG_DIR / "agent_workspaces" / escalator_id
+    print(f"\n  --- {escalator_id} ---")
 
-    # ─── Step 5b: Register escalator agent (always when monitor is enabled) ───
-    if args.monitor:
-        escalator_id = f"{project}-{mission}-escalator"
-        ws_dir = CONFIG_DIR / "agent_workspaces" / escalator_id
+    escalator_template = load_escalator_template()
+    escalator_md = safe_render(
+        escalator_template,
+        agent_id=escalator_id,
+        project=project,
+        mission=mission,
+        goal=goal,
+        slack_user_id=args.slack_user_id,
+        escalation_policy=args.escalation_policy or "",
+        config_dir=str(CONFIG_DIR),
+    )
+    escalator_msg = generate_escalator_cron_message(escalator_id, project, mission, profile_env)
 
-        print(f"\n  Registering escalator agent ({escalator_id})...")
-
-        # a. Create workspace
-        print(f"  Creating workspace: {ws_dir}")
-        if not dry_run:
-            ws_dir.mkdir(parents=True, exist_ok=True)
-
-        # b. Generate AGENTS.md from escalator template
-        escalator_template = load_escalator_template()
-        agents_md = safe_render(
-            escalator_template,
-            agent_id=escalator_id,
-            project=project,
-            mission=mission,
-            goal=goal,
-            slack_user_id=args.slack_user_id,
-            escalation_policy=args.escalation_policy or "",
-            config_dir=str(CONFIG_DIR),
-        )
-        agents_md_path = ws_dir / "AGENTS.md"
-        print(f"  Writing AGENTS.md")
-        if not dry_run:
-            agents_md_path.write_text(agents_md)
-
-        # c. Register openclaw agent
-        print(f"  Registering openclaw agent: {escalator_id}")
-        if not dry_run:
-            run(
-                f"openclaw {oc_profile_flag} agents add {escalator_id} "
-                f"--workspace {ws_dir} "
-                f"--model {SUPERVISOR_MODEL} "
-                f"--non-interactive".strip(),
-                check=False,
-            )
-
-        # d. Register in MC fleet
-        print(f"  Registering in MC fleet")
-        if not dry_run:
-            run(
-                f"{profile_env}MC_AGENT={escalator_id} mc -p {project} register {escalator_id} --role escalator",
-                check=False,
-            )
-
-        # e. Add cron job (same schedule as regular agents)
-        escalator_msg = generate_escalator_cron_message(escalator_id, project, mission, profile_env)
-        print(f"  Adding cron job ({cron_schedule})")
-        if not dry_run:
-            escaped_msg = escalator_msg.replace('"', '\\"')
-            run(
-                f'openclaw {oc_profile_flag} cron add '
-                f'--agent {escalator_id} '
-                f'--name {escalator_id} '
-                f'--cron "{cron_schedule}" '
-                f'--session isolated '
-                f'--announce --channel slack --to {args.slack_channel} '
-                f'--message "{escaped_msg}"'.strip(),
-                check=False,
-            )
-
-        agents_created.append(escalator_id)
-        print(f"  OK — {escalator_id} ready")
+    register_agent(
+        agent_id=escalator_id,
+        role="escalator",
+        project=project,
+        ws_dir=ws_dir,
+        agents_md=escalator_md,
+        cron_schedule=cron_schedule,
+        cron_msg=escalator_msg,
+        slack_channel=args.slack_channel,
+        oc_profile_flag=oc_profile_flag,
+        profile_env=profile_env,
+        dry_run=dry_run,
+        model=SUPERVISOR_MODEL,
+    )
+    agents_created.append(escalator_id)
 
     # ─── Step 6: Summary ───
     mc_prefix = f"{profile_env}mc" if profile_env else "mc"
-    total_steps = 6 if args.monitor else 5
-    print(f"\n[{total_steps}/{total_steps}] Summary")
+    print(f"\n[6/6] Summary")
     print(f"")
     print(f"═══ Team Ready ═══")
     print(f"  Project:    {mc_prefix} -p {project}")
@@ -602,9 +649,9 @@ def main():
     print(f"  Agents:     {len(agents_created)}")
     for a in agents_created:
         print(f"    - {a}")
-    if args.monitor:
-        print(f"  Monitor:    {project}-{mission}-monitor ({args.monitor_cron})")
-        print(f"  Escalator:  {project}-{mission}-escalator")
+    print(f"  Monitor:    {project}-{mission}-monitor ({supervisor_schedule})")
+    print(f"  Brain:      {project}-{mission}-brain ({supervisor_schedule})")
+    print(f"  Escalator:  {project}-{mission}-escalator ({cron_schedule})")
     print(f"")
     print(f"Next: Use mc to add tasks for the team:")
     for role in roles:
