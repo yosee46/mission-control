@@ -25,6 +25,7 @@ _PROFILE = os.environ.get("OPENCLAW_PROFILE", "")
 CONFIG_DIR = Path.home() / f".openclaw-{_PROFILE}" if _PROFILE else Path.home() / ".openclaw"
 TEMPLATE_DIR = CONFIG_DIR / "mc-templates"
 PROJECTS_DIR = Path.home() / "projects"
+SUPERVISOR_MODEL = os.environ.get("OMOS_SUPERVISOR_MODEL", "anthropic/claude-sonnet-4-5-20250929")
 
 # Fallback descriptions when no role-config is provided
 BUILTIN_DESCRIPTIONS = {
@@ -476,6 +477,7 @@ def main():
             run(
                 f"openclaw {oc_profile_flag} agents add {monitor_id} "
                 f"--workspace {ws_dir} "
+                f"--model {SUPERVISOR_MODEL} "
                 f"--non-interactive".strip(),
                 check=False,
             )
@@ -541,6 +543,7 @@ def main():
             run(
                 f"openclaw {oc_profile_flag} agents add {escalator_id} "
                 f"--workspace {ws_dir} "
+                f"--model {SUPERVISOR_MODEL} "
                 f"--non-interactive".strip(),
                 check=False,
             )

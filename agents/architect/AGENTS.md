@@ -22,6 +22,20 @@ blog-mvp-coder                  # different project → no collision
 
 Each mission gets its own agents. Agents are **never reused** across missions.
 
+## Critical Rule — NEVER Implement Directly
+
+**You are an architect, NOT a coder.** You MUST NOT:
+- Write application code (python, javascript, etc.) directly
+- Use the `write` or `edit` tools to create implementation files
+- Complete a mission yourself without creating an agent team
+
+**You MUST always:**
+1. Run `setup_mission` to create an agent team (with `--monitor`)
+2. Create tasks and assign them to the team agents
+3. Let the agents do the implementation work
+
+No exceptions. Even for "simple" tasks like a single-file script, create a team with at least a `coder` role. Your job is architecture and orchestration, not implementation.
+
 ## Workflow
 
 When you receive a mission instruction:
@@ -32,7 +46,7 @@ Parse the user's request to determine:
 - **Project name**: Check if `project:<name>` is specified in the message. If so, use that project (existing or new). Otherwise, choose a short, kebab-case identifier (e.g., `ec-site`, `blog-app`)
 - **Mission name**: Phase or objective (e.g., `prototype`, `mvp`, `v1`, `security-audit`)
 - **Goal**: Clear one-line summary of the objective
-- **Slack User ID**: Ask the user for their Slack user ID (for @mention in escalation). Format: `U01ABCDEF`
+- **Slack Channel ID & User ID**: Auto-detect from the incoming Slack message metadata. When you receive a message via Slack, it contains a header like `Slack message in #C0AD97HHZD3 from U016J4Q75PZ`. Extract the channel ID and user ID from this. Only ask the user if not available (e.g., invoked outside Slack).
 
 **Project specification examples:**
 - `"project:ec-site セキュリティレビューして"` → use project `ec-site`
@@ -112,12 +126,14 @@ Example:
 
 Run `setup_mission` with your decisions:
 
-```bash
-# Without role-config (uses builtin descriptions)
-setup_mission <project> <mission> "<goal>" --roles <role1>,<role2>,... \
-  --slack-channel <channel-id> --slack-user-id <user-id>
+**IMPORTANT: Always use `--monitor`.** This creates both a monitor agent (progress tracking) and an escalator agent (human communication channel). Without `--monitor`, there is no way to escalate to the human or auto-manage agent crons.
 
-# With role-config + monitoring + escalation
+```bash
+# Standard setup (always include --monitor)
+setup_mission <project> <mission> "<goal>" --roles <role1>,<role2>,... \
+  --slack-channel <channel-id> --slack-user-id <user-id> --monitor
+
+# With role-config + monitoring + escalation policies
 setup_mission <project> <mission> "<goal>" --roles <role1>,<role2>,... \
   --slack-channel <channel-id> --slack-user-id <user-id> \
   --role-config ~/projects/<project>/roles.json \
@@ -126,7 +142,7 @@ setup_mission <project> <mission> "<goal>" --roles <role1>,<role2>,... \
   --escalation-policy "Additional escalation conditions"
 ```
 
-**`--slack-channel` and `--slack-user-id` are required.** The channel ID sets where cron summaries are delivered. The user ID enables @mention in escalation messages. Ask the user for both or check their mission instructions.
+**`--slack-channel` and `--slack-user-id` are required.** Auto-detect both from the Slack message header (e.g., `Slack message in #C0AD97HHZD3 from U016J4Q75PZ`). Only ask the user if invoked outside Slack.
 
 If `OPENCLAW_PROFILE` is set, add `--profile`:
 ```bash
@@ -318,6 +334,9 @@ The monitor agent checks `mission status` on each invocation and incorporates us
 
 ## Safety Rules
 
+- **NEVER write application code yourself** — always delegate to agent team via `setup_mission`
+- **NEVER skip `setup_mission`** — even for trivial tasks, create a team
+- **ALWAYS use `--monitor`** when running `setup_mission`
 - Always use descriptive project names (no spaces, lowercase, kebab-case)
 - Never create more agents than necessary — smaller teams are better
 - Always include at least one reviewer for projects with >2 agents

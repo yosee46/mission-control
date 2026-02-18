@@ -5,7 +5,7 @@
 set -euo pipefail
 
 AGENT="${MC_AGENT:-$(whoami)}"
-SCHEMA_DIR="$(cd "$(dirname "$0")" && pwd)"
+SCHEMA_DIR="$(cd "$(dirname "$(readlink -f "$0" 2>/dev/null || realpath "$0" 2>/dev/null || echo "$0")")" && pwd)"
 PROFILE="${OPENCLAW_PROFILE:-}"
 if [ -n "$PROFILE" ]; then
   CONFIG_DIR="$HOME/.openclaw-$PROFILE"
@@ -320,6 +320,14 @@ for job in data.get('jobs', []):
 
       # 4. Remove openclaw agents
       echo -e "${C}[3/4] Removing openclaw agents (${pattern}*)...${N}"
+      local agents_list
+      agents_list=$(openclaw $oc_profile_flag agents list --json 2>/dev/null | python3 -c "
+import sys, json
+data = json.load(sys.stdin)
+for a in (data if isinstance(data, list) else data.get('agents', [])):
+    name = a.get('name','') or a.get('agentId','')
+    if name.startswith('$pattern'):
+        print(name)" 2>/dev/null || true)
       if [ -n "$agents_list" ]; then
         while IFS= read -r agent_name; do
           [ -z "$agent_name" ] && continue
