@@ -737,11 +737,15 @@ cmd_list() {
 cmd_claim() {
   ensure_mission_writable
   local id="${1:?Usage: mc claim <id>}"
-  local current status
+  local current status sched
   current=$(sql "SELECT owner FROM tasks WHERE id=$id AND mission_id=$MID;")
   status=$(sql "SELECT status FROM tasks WHERE id=$id AND mission_id=$MID;")
+  sched=$(sql "SELECT scheduled_at FROM tasks WHERE id=$id AND mission_id=$MID;")
   if [[ "$status" == "blocked" ]]; then
     echo -e "${R}#$id is blocked — resolve blockers first${N}"; return 1
+  fi
+  if [[ -n "$sched" && "$sched" > "$(date -u '+%Y-%m-%d %H:%M')" ]]; then
+    echo -e "${R}#$id is scheduled for $sched — cannot claim yet${N}"; return 1
   fi
   if [[ -n "$current" && "$current" != "$AGENT" ]]; then
     echo -e "${R}Already claimed by $current${N}"; return 1
@@ -754,10 +758,14 @@ cmd_claim() {
 cmd_start() {
   ensure_mission_writable
   local id="${1:?Usage: mc start <id>}"
-  local status
+  local status sched
   status=$(sql "SELECT status FROM tasks WHERE id=$id AND mission_id=$MID;")
+  sched=$(sql "SELECT scheduled_at FROM tasks WHERE id=$id AND mission_id=$MID;")
   if [[ "$status" == "blocked" ]]; then
     echo -e "${R}#$id is blocked — resolve blockers first${N}"; return 1
+  fi
+  if [[ -n "$sched" && "$sched" > "$(date -u '+%Y-%m-%d %H:%M')" ]]; then
+    echo -e "${R}#$id is scheduled for $sched — cannot start yet${N}"; return 1
   fi
   sql "UPDATE tasks SET status='in_progress', updated_at=datetime('now') WHERE id=$id AND mission_id=$MID AND owner='$AGENT';"
   sql "UPDATE agents SET status='busy' WHERE name='$AGENT';"
