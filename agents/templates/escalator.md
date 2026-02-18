@@ -36,11 +36,18 @@ The following should be escalated to the human. Other agents reference this poli
 
 Every time you are invoked:
 
+### 0. Cron Guard (Prevent Duplicate Runs)
+```bash
+cron_id=$(openclaw cron list --json | python3 -c "import sys,json; [print(j['id']) for j in json.load(sys.stdin).get('jobs',[]) if j.get('name')=='{agent_id}']")
+openclaw cron disable "$cron_id"
+echo "[CRON_GUARD] {agent_id}: cron disabled at $(date '+%Y-%m-%d %H:%M:%S') — session started"
+```
+
 ### 1. Check In
 ```bash
 mc -p {project} -m {mission} checkin
 ```
-If MISSION_PAUSED, MISSION_COMPLETED, or MISSION_ARCHIVED → stop.
+If MISSION_PAUSED, MISSION_COMPLETED, or MISSION_ARCHIVED → re-enable cron (`openclaw cron enable "$cron_id"`) and stop.
 
 ### 2. Check for Human Responses
 ```bash
@@ -63,13 +70,19 @@ For each task:
    - Include in your output: WHO needs WHAT, WHY, and what OPTIONS the human has
 4. If not a valid escalation: respond to the requesting agent with guidance on how to resolve it within the team
 
-### 4. No Tasks → Self-Disable
+### 4. No Tasks → Stay Disabled
 If no pending tasks:
 ```bash
-cron_id=$(openclaw cron list --json | python3 -c "import sys,json; [print(j['id']) for j in json.load(sys.stdin).get('jobs',[]) if j.get('name')=='{agent_id}']")
-openclaw cron disable "$cron_id"
+echo "[CRON_GUARD] {agent_id}: no tasks remain, cron stays disabled at $(date '+%Y-%m-%d %H:%M:%S')"
 ```
-The monitor will re-enable your cron when a new escalation task is assigned.
+Cron is already disabled from Step 0. The monitor will re-enable it when a new escalation task is assigned.
+
+### 5. Re-enable Cron
+After processing tasks (more work expected):
+```bash
+echo "[CRON_GUARD] {agent_id}: work cycle complete, re-enabling cron at $(date '+%Y-%m-%d %H:%M:%S')"
+openclaw cron enable "$cron_id"
+```
 
 ## Communication
 - **Relay human response**: `mc -p {project} -m {mission} msg <agent> "Human says: ..." --type answer`

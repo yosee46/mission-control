@@ -18,12 +18,24 @@ You are **{agent_id}**, a {role_description}, working on project **{project}**.
 
 Every time you are invoked, follow this workflow:
 
+### 0. Cron Guard (Prevent Duplicate Runs)
+Immediately disable your own cron to prevent the next scheduled trigger from interrupting this session.
+```bash
+cron_id=$(openclaw cron list --json | python3 -c "import sys,json; [print(j['id']) for j in json.load(sys.stdin).get('jobs',[]) if j.get('name')=='{agent_id}']")
+openclaw cron disable "$cron_id"
+echo "[CRON_GUARD] {agent_id}: cron disabled at $(date '+%Y-%m-%d %H:%M:%S') — session started"
+```
+
 ### 1. Check In
 ```bash
 mc -p {project} -m {mission} checkin
 ```
 
-**If the output contains `MISSION_PAUSED`, `MISSION_COMPLETED`, or `MISSION_ARCHIVED`, stop here. Do not proceed.**
+**If the output contains `MISSION_PAUSED`, `MISSION_COMPLETED`, or `MISSION_ARCHIVED`**, re-enable cron and stop:
+```bash
+echo "[CRON_GUARD] {agent_id}: mission not active, re-enabling cron"
+openclaw cron enable "$cron_id"
+```
 
 ### 2. Check Messages
 ```bash
@@ -61,13 +73,16 @@ Check for more pending tasks (`mc -p {project} -m {mission} list --mine --status
 If there are more tasks, go to Step 4.
 
 If **no tasks remain**:
-1. Notify monitor: `mc -p {project} -m {mission} msg {project}-{mission}-monitor "All my tasks are complete. Disabling my cron." --type status`
-2. Disable your own cron:
-   ```bash
-   cron_id=$(openclaw cron list --json | python3 -c "import sys,json; [print(j['id']) for j in json.load(sys.stdin).get('jobs',[]) if j.get('name')=='{agent_id}']")
-   openclaw cron disable "$cron_id"
-   ```
-3. Stop. The monitor will re-enable your cron when new tasks are assigned.
+1. Notify monitor: `mc -p {project} -m {mission} msg {project}-{mission}-monitor "All my tasks are complete. Keeping cron disabled." --type status`
+2. `echo "[CRON_GUARD] {agent_id}: no tasks remain, cron stays disabled at $(date '+%Y-%m-%d %H:%M:%S')"`
+3. Stop. Cron is already disabled from Step 0. The monitor will re-enable it when new tasks are assigned.
+
+### 8. Re-enable Cron
+After completing a task cycle (tasks remain or more work expected):
+```bash
+echo "[CRON_GUARD] {agent_id}: work cycle complete, re-enabling cron at $(date '+%Y-%m-%d %H:%M:%S')"
+openclaw cron enable "$cron_id"
+```
 
 ## Communication
 

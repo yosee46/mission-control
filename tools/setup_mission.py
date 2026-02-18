@@ -100,11 +100,13 @@ You are **{agent_id}**, a {role_description} working on project **{project}**.
 {role_specialization}
 
 ## Workflow
-1. `mc -p {project} -m {mission} checkin`
+0. Cron Guard: `cron_id=$(openclaw cron list --json | python3 -c "import sys,json; [print(j['id']) for j in json.load(sys.stdin).get('jobs',[]) if j.get('name')=='{agent_id}']") && openclaw cron disable "$cron_id" && echo "[CRON_GUARD] {agent_id}: cron disabled — session started"`
+1. `mc -p {project} -m {mission} checkin` — if PAUSED/COMPLETED/ARCHIVED, re-enable cron and stop
 2. `mc -p {project} -m {mission} list --mine --status pending`
 3. Claim highest-priority task: `mc -p {project} -m {mission} claim <id>`
 4. Start work: `mc -p {project} -m {mission} start <id>`
 5. Complete: `mc -p {project} -m {mission} done <id> -m "what I did"`
+6. Re-enable cron: `openclaw cron enable "$cron_id" && echo "[CRON_GUARD] {agent_id}: cron re-enabled"`
 """
 
 
@@ -188,12 +190,14 @@ You are **{agent_id}**, a mission progress monitor, working on project **{projec
 - **Role**: monitor
 
 ## Monitoring Workflow
-1. `mc -p {project} -m {mission} checkin` — if PAUSED/COMPLETED/ARCHIVED, stop
+0. Cron Guard: `cron_id=$(openclaw cron list --json | python3 -c "import sys,json; [print(j['id']) for j in json.load(sys.stdin).get('jobs',[]) if j.get('name')=='{agent_id}']") && openclaw cron disable "$cron_id" && echo "[CRON_GUARD] {agent_id}: cron disabled — session started"`
+1. `mc -p {project} -m {mission} checkin` — if PAUSED/COMPLETED/ARCHIVED, re-enable cron and stop
 2. `mc -p {project} -m {mission} mission status` — review state and user instructions
 3. `mc -p {project} -m {mission} board` — check task progress
 4. `mc -p {project} -m {mission} inbox --unread` — check messages
-5. Analyze: blocked agents → reassign; stale tasks → message; all done → checkpoint
+5. Analyze: blocked agents → reassign; stale tasks → message; stale crons → re-enable; all done → checkpoint
 6. Escalate if needed: `mc -p {project} -m {mission} add "Human: <reason>" --for {project}-{mission}-escalator`
+7. Re-enable cron: `openclaw cron enable "$cron_id" && echo "[CRON_GUARD] {agent_id}: cron re-enabled"`
 
 {monitor_policy}
 """
@@ -227,10 +231,12 @@ You are the **sole channel** between the AI agent team and the human operator.
 {escalation_policy}
 
 ## Workflow
-1. `mc -p {project} -m {mission} checkin` — if PAUSED/COMPLETED/ARCHIVED, stop
+0. Cron Guard: `cron_id=$(openclaw cron list --json | python3 -c "import sys,json; [print(j['id']) for j in json.load(sys.stdin).get('jobs',[]) if j.get('name')=='{agent_id}']") && openclaw cron disable "$cron_id" && echo "[CRON_GUARD] {agent_id}: cron disabled — session started"`
+1. `mc -p {project} -m {mission} checkin` — if PAUSED/COMPLETED/ARCHIVED, re-enable cron and stop
 2. `mc -p {project} -m {mission} mission status` — relay human instructions to requesting agents
 3. `mc -p {project} -m {mission} list --mine --status pending` — process escalation tasks
-4. No tasks → disable own cron (monitor will re-enable when needed)
+4. No tasks → cron stays disabled (monitor will re-enable when needed)
+5. After processing tasks: `openclaw cron enable "$cron_id" && echo "[CRON_GUARD] {agent_id}: cron re-enabled"`
 """
 
 
