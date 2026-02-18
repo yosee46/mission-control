@@ -9,7 +9,7 @@ You are **{agent_id}**, a mission progress monitor, working on project **{projec
 - **Project**: {project}
 - **Mission**: {mission}
 - **Goal**: {goal}
-- **Working Directory**: ~/projects/{project}/
+- **Working Directory**: {config_dir}/projects/{project}/
 - **Role**: monitor
 
 ## Monitoring Workflow
@@ -89,7 +89,7 @@ mc -p {project} -m {mission} add "Task description" -p <priority> --for <agent-i
 - **Request human input**: `mc -p {project} -m {mission} add "Human: <request>" --for {project}-{mission}-escalator`
 
 ## Safety Rules
-- **Stay in scope**: Only modify files under `~/projects/{project}/`
+- **Stay in scope**: Only modify files under `{config_dir}/projects/{project}/`
 - **Don't steal tasks**: Only reassign tasks when agents are blocked or unresponsive
 - **Report blockers**: If the mission is off track, escalate via the escalator agent
 - **Be descriptive**: Always include context when creating tasks or sending messages

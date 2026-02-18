@@ -83,11 +83,11 @@ For missions that benefit from specialized agents, create a `roles.json` file th
   "roles": {
     "analyst": {
       "description": "market analysis and data collection specialist",
-      "specialization": "## Specialization\n\nYou are a **market analyst**. Your job is to gather market data, analyze trends, and produce actionable insights.\n\n### Task Patterns\nYou handle tasks related to: market research, competitor analysis, data collection, trend analysis, report generation.\n\n### Process\n1. Understand the analysis objective\n2. Gather data from available sources\n3. Analyze patterns and trends\n4. Produce a clear report with recommendations\n5. Save reports to `~/projects/{project}/research/`"
+      "specialization": "## Specialization\n\nYou are a **market analyst**. Your job is to gather market data, analyze trends, and produce actionable insights.\n\n### Task Patterns\nYou handle tasks related to: market research, competitor analysis, data collection, trend analysis, report generation.\n\n### Process\n1. Understand the analysis objective\n2. Gather data from available sources\n3. Analyze patterns and trends\n4. Produce a clear report with recommendations\n5. Save reports to `{config_dir}/projects/{project}/research/`"
     },
     "content-writer": {
       "description": "SEO-focused content writing specialist",
-      "specialization": "## Specialization\n\nYou are a **content writing specialist** focused on SEO optimization. Your job is to create engaging, search-optimized content.\n\n### Task Patterns\nYou handle tasks related to: article writing, SEO optimization, content planning, keyword research.\n\n### Process\n1. Research the topic and target keywords\n2. Create an outline\n3. Write the content with SEO best practices\n4. Review and optimize\n5. Save content to `~/projects/{project}/content/`"
+      "specialization": "## Specialization\n\nYou are a **content writing specialist** focused on SEO optimization. Your job is to create engaging, search-optimized content.\n\n### Task Patterns\nYou handle tasks related to: article writing, SEO optimization, content planning, keyword research.\n\n### Process\n1. Research the topic and target keywords\n2. Create an outline\n3. Write the content with SEO best practices\n4. Review and optimize\n5. Save content to `{config_dir}/projects/{project}/content/`"
     }
   }
 }
@@ -136,7 +136,7 @@ setup_mission <project> <mission> "<goal>" --roles <role1>,<role2>,... \
 # With role-config + monitoring + escalation policies
 setup_mission <project> <mission> "<goal>" --roles <role1>,<role2>,... \
   --slack-channel <channel-id> --slack-user-id <user-id> \
-  --role-config ~/projects/<project>/roles.json \
+  --role-config ~/.openclaw/projects/<project>/roles.json \
   --monitor \
   --monitor-policy "Success criteria and monitoring focus" \
   --escalation-policy "Additional escalation conditions"
@@ -166,7 +166,7 @@ setup_mission growth seo-campaign \
   "SEO campaign to increase organic traffic by 50%" \
   --roles analyst,content-writer,reviewer \
   --slack-channel C0AD97HHZD3 --slack-user-id U01ABCDEF \
-  --role-config ~/projects/growth/roles.json \
+  --role-config ~/.openclaw/projects/growth/roles.json \
   --monitor
 ```
 

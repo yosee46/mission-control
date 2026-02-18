@@ -24,7 +24,6 @@ from pathlib import Path
 _PROFILE = os.environ.get("OPENCLAW_PROFILE", "")
 CONFIG_DIR = Path.home() / f".openclaw-{_PROFILE}" if _PROFILE else Path.home() / ".openclaw"
 TEMPLATE_DIR = CONFIG_DIR / "mc-templates"
-PROJECTS_DIR = Path.home() / "projects"
 SUPERVISOR_MODEL = os.environ.get("OMOS_SUPERVISOR_MODEL", "anthropic/claude-sonnet-4-5-20250929")
 
 # Fallback descriptions when no role-config is provided
@@ -95,7 +94,7 @@ You are **{agent_id}**, a {role_description} working on project **{project}**.
 - **Project**: {project}
 - **Mission**: {mission}
 - **Goal**: {goal}
-- **Working Directory**: ~/projects/{project}/
+- **Working Directory**: {config_dir}/projects/{project}/
 - **Role**: {role}
 
 {role_specialization}
@@ -133,6 +132,7 @@ def generate_agents_md(
     goal: str,
     role_config: dict | None = None,
     role_desc: str | None = None,
+    config_dir: str = "",
 ) -> str:
     """Generate AGENTS.md for a specific agent by filling template placeholders."""
     template = load_template()
@@ -150,6 +150,7 @@ def generate_agents_md(
         project=project,
         mission=mission,
         goal=goal,
+        config_dir=config_dir,
     )
 
 
@@ -183,7 +184,7 @@ You are **{agent_id}**, a mission progress monitor, working on project **{projec
 - **Project**: {project}
 - **Mission**: {mission}
 - **Goal**: {goal}
-- **Working Directory**: ~/projects/{project}/
+- **Working Directory**: {config_dir}/projects/{project}/
 - **Role**: monitor
 
 ## Monitoring Workflow
@@ -215,7 +216,7 @@ You are the **sole channel** between the AI agent team and the human operator.
 - **Project**: {project}
 - **Mission**: {mission}
 - **Goal**: {goal}
-- **Working Directory**: ~/projects/{project}/
+- **Working Directory**: {config_dir}/projects/{project}/
 - **Role**: escalator
 - **Human Slack User**: <@{slack_user_id}>
 
@@ -321,6 +322,7 @@ def main():
     else:
         CONFIG_DIR = Path.home() / ".openclaw"
     TEMPLATE_DIR = CONFIG_DIR / "mc-templates"
+    projects_dir = CONFIG_DIR / "projects"
 
     project = args.project
     mission = args.mission
@@ -369,7 +371,7 @@ def main():
     print(f"  OK")
 
     # ─── Step 3: Create project directory ───
-    project_dir = PROJECTS_DIR / project
+    project_dir = projects_dir / project
     print(f"[3/5] Creating project directory '{project_dir}'...")
     if not dry_run:
         project_dir.mkdir(parents=True, exist_ok=True)
@@ -399,6 +401,7 @@ def main():
             goal=goal,
             role_config=role_config,
             role_desc=args.role_desc if len(roles) == 1 else None,
+            config_dir=str(CONFIG_DIR),
         )
         agents_md_path = ws_dir / "AGENTS.md"
         print(f"  Writing AGENTS.md")
@@ -465,6 +468,7 @@ def main():
             goal=goal,
             monitor_policy=args.monitor_policy or "",
             slack_user_id=args.slack_user_id,
+            config_dir=str(CONFIG_DIR),
         )
         agents_md_path = ws_dir / "AGENTS.md"
         print(f"  Writing AGENTS.md")
@@ -531,6 +535,7 @@ def main():
             goal=goal,
             slack_user_id=args.slack_user_id,
             escalation_policy=args.escalation_policy or "",
+            config_dir=str(CONFIG_DIR),
         )
         agents_md_path = ws_dir / "AGENTS.md"
         print(f"  Writing AGENTS.md")

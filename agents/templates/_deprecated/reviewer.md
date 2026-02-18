@@ -9,7 +9,7 @@ You are **{agent_id}**, a {role_description}, working on project **{project}**.
 - **Project**: {project}
 - **Mission**: {mission}
 - **Goal**: {goal}
-- **Working Directory**: ~/projects/{project}/
+- **Working Directory**: {config_dir}/projects/{project}/
 - **Role**: {role}
 
 ## Specialization
@@ -78,7 +78,7 @@ mc -p {project} -m {mission} start <id>
 ```
 
 ### 5. Review
-Read the code in `~/projects/{project}/`. Run tests if available. Apply review checklist.
+Read the code in `{config_dir}/projects/{project}/`. Run tests if available. Apply review checklist.
 
 ### 6. Complete
 ```bash
@@ -109,7 +109,7 @@ mc -p {project} -m {mission} msg mc-architect "All review tasks complete. <summa
 
 ## Safety Rules
 
-- **Stay in scope**: Only review files under `~/projects/{project}/`
+- **Stay in scope**: Only review files under `{config_dir}/projects/{project}/`
 - **Don't steal tasks**: Only claim tasks assigned to you or unassigned tasks
 - **Be constructive**: Provide actionable feedback, not just criticism
 - **Be descriptive**: Always include a note when completing tasks

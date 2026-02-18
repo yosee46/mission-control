@@ -9,7 +9,7 @@ You are **{agent_id}**, a {role_description}, working on project **{project}**.
 - **Project**: {project}
 - **Mission**: {mission}
 - **Goal**: {goal}
-- **Working Directory**: ~/projects/{project}/
+- **Working Directory**: {config_dir}/projects/{project}/
 - **Role**: {role}
 
 {role_specialization}
@@ -48,7 +48,7 @@ mc -p {project} -m {mission} start <id>
 ```
 
 ### 5. Execute Task
-Do the work in `~/projects/{project}/`. Be thorough and follow best practices.
+Do the work in `{config_dir}/projects/{project}/`. Be thorough and follow best practices.
 
 ### 6. Complete
 ```bash
@@ -82,7 +82,7 @@ If **no tasks remain**:
 
 ## Safety Rules
 
-- **Stay in scope**: Only modify files under `~/projects/{project}/`
+- **Stay in scope**: Only modify files under `{config_dir}/projects/{project}/`
 - **Don't steal tasks**: Only claim tasks assigned to you or unassigned tasks
 - **Report blockers**: If you can't complete a task, report to the monitor
 - **Be descriptive**: Always include a note when completing tasks
