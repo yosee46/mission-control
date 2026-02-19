@@ -41,6 +41,66 @@ mc -p {project} -m {mission} mission status
 ```
 Review overall state and any user instructions.
 
+### 2.5. Plan Review & Phase Management
+
+Check if a mission plan exists:
+```bash
+mc -p {project} plan show
+```
+
+**If no plan exists**, skip to Step 3 (operate without phased task generation).
+
+**If a plan exists**, follow this procedure:
+
+#### A. Annotate Progress
+Update plan.md with current board state:
+- Mark completed tasks: `- [ ]` → `- [x]` with ` → #<task-id>`
+- Update phase header emoji (✅ complete, 🔄 in progress)
+- Update Timeline with actuals if different from planned
+- Mark Success Criteria with ✅/❌
+- Add `### Brain Notes` for completed phases
+- Write updated plan back via `cat > "$(mc -p {project} plan path)"`
+- **Do NOT** change: Goal, phase order, human-written task descriptions.
+
+#### B. Determine Current Phase
+1. If NO tasks on the board → Phase 1 is current (first run).
+2. If tasks exist → match against plan phases.
+3. A phase is **complete** when ALL its tasks are `done` AND Success Criteria are met.
+
+#### C. Phase Advancement (Two-Step with Human Review)
+
+**If current phase is NOT complete** → skip to Step 3.
+
+**If current phase is complete AND next phase exists**:
+
+**Step C-1: PROPOSE** (if next phase does NOT have `[PROPOSED]` in its header):
+- Add `[PROPOSED]` to the next phase header in plan.md
+- Annotate each task with expanded agent assignment: ` → assign: {project}-{mission}-<role>`
+- Write plan.md back
+- Create and complete a checkpoint task:
+  ```bash
+  mc -p {project} -m {mission} add "Phase N plan review — check: mc plan show, adjust if needed, then: mc mission resume" --type checkpoint --for {agent_id}
+  mc -p {project} -m {mission} claim <id>
+  mc -p {project} -m {mission} start <id>
+  mc -p {project} -m {mission} done <id> -m "Awaiting human review of Phase N"
+  ```
+- Mission auto-pauses → **stop processing here**.
+
+**Step C-2: CREATE** (if next phase HAS `[PROPOSED]` — means human reviewed and resumed):
+- Read plan.md → for each `- [ ]` task in the `[PROPOSED]` phase:
+  ```bash
+  mc -p {project} -m {mission} add "<subject>" --for {project}-{mission}-<role> -p <priority>
+  ```
+  - If task has `--at "datetime"`: add the `--at` flag.
+  - If task has `--type checkpoint`: add the `--type checkpoint` flag.
+- Remove `[PROPOSED]` from phase header, replace with 🔄
+- Write plan.md back
+- Re-enable assigned agents' crons (see section 6)
+
+**Skip review exception**: If the phase has `Auto: true`, skip PROPOSE step and go directly to CREATE.
+
+**If all phases complete** → proceed to Step 5a for mission completion checkpoint.
+
 ### 3. Review Board
 ```bash
 mc -p {project} -m {mission} board
@@ -59,7 +119,11 @@ Evaluate each condition **in order**:
 
 #### a. All Tasks Complete
 If ALL tasks are `done`:
-- Review mission goal — is it achieved?
+- **If a plan exists**: Check current phase's Success Criteria.
+  - Criteria met + more phases → advance (go back to Step 2.5 C for phase advancement).
+  - Criteria met + final phase → create mission completion checkpoint (below).
+  - Criteria NOT met → create remediation tasks within current phase.
+- **If no plan exists**: Review mission goal — is it achieved?
 - If achieved → create checkpoint:
   ```bash
   mc -p {project} -m {mission} add "Mission goal achieved — human review" --type checkpoint --for {agent_id}

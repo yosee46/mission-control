@@ -417,6 +417,10 @@ def main():
         help="Additional escalation policy text for the escalator agent"
     )
     parser.add_argument(
+        "--plan",
+        help="Path to plan.md file to copy into the project directory"
+    )
+    parser.add_argument(
         "--dry-run", action="store_true",
         help="Show what would be done without executing"
     )
@@ -491,6 +495,18 @@ def main():
     if not dry_run:
         project_dir.mkdir(parents=True, exist_ok=True)
     print(f"  OK")
+
+    # ─── Step 3.5: Copy plan (if provided) ───
+    if args.plan:
+        plan_src = Path(args.plan)
+        if not plan_src.exists():
+            print(f"ERROR: Plan file not found: {args.plan}", file=sys.stderr)
+            sys.exit(1)
+        plan_dest = project_dir / "plan.md"
+        print(f"  Copying plan to '{plan_dest}'...")
+        if not dry_run:
+            plan_dest.write_text(plan_src.read_text())
+        print(f"  OK")
 
     # ─── Step 4: Register worker agents ───
     print(f"[4/6] Registering worker agents...")
@@ -642,6 +658,8 @@ def main():
     print(f"  Project:    {mc_prefix} -p {project}")
     print(f"  Mission:    {mc_prefix} -p {project} -m {mission}")
     print(f"  Project:    {project_dir}/")
+    if args.plan:
+        print(f"  Plan:       {project_dir / 'plan.md'}")
     if args.role_config:
         print(f"  Roles:      {args.role_config}")
     if profile:
@@ -653,10 +671,18 @@ def main():
     print(f"  Brain:      {project}-{mission}-brain ({supervisor_schedule})")
     print(f"  Escalator:  {project}-{mission}-escalator ({cron_schedule})")
     print(f"")
-    print(f"Next: Use mc to add tasks for the team:")
-    for role in roles:
-        agent_id = f"{project}-{mission}-{role}"
-        print(f'  {mc_prefix} -p {project} -m {mission} add "Task description" --for {agent_id}')
+    if args.plan:
+        print(f"Brain will read plan.md and create Phase 1 tasks automatically.")
+        print(f"  View plan: {mc_prefix} -p {project} plan show")
+        print(f"")
+        print(f"Immediate start (optional):")
+        oc_cmd = f"openclaw {oc_profile_flag} agents run {brain_id}".replace("  ", " ")
+        print(f"  {oc_cmd}")
+    else:
+        print(f"Next: Use mc to add tasks for the team:")
+        for role in roles:
+            agent_id = f"{project}-{mission}-{role}"
+            print(f'  {mc_prefix} -p {project} -m {mission} add "Task description" --for {agent_id}')
     print(f"")
     print(f"Monitor:")
     print(f"  {mc_prefix} -p {project} -m {mission} board")

@@ -969,6 +969,32 @@ cmd_whoami() {
   echo -e "Role:      ${role:-unregistered}"
 }
 
+cmd_plan() {
+  local subcmd="${1:-show}"
+  shift 2>/dev/null || true
+  local plan_file="$CONFIG_DIR/projects/$PROJECT/plan.md"
+  case "$subcmd" in
+    show)
+      if [[ ! -f "$plan_file" ]]; then
+        echo -e "${Y}No plan found.${N} Set one with: mc -p $PROJECT plan set <file>"
+        return 0
+      fi
+      cat "$plan_file"
+      ;;
+    set)
+      local src="${1:?Usage: mc plan set <file>}"
+      [[ -f "$src" ]] || { echo -e "${R}File not found: $src${N}" >&2; return 1; }
+      mkdir -p "$(dirname "$plan_file")"
+      cp "$src" "$plan_file"
+      echo -e "${G}Plan set${N} → $plan_file"
+      ;;
+    path)
+      echo "$plan_file"
+      ;;
+    *) echo "Usage: mc -p <project> plan <show|set|path>" ;;
+  esac
+}
+
 cmd_help() {
   cat <<'EOF'
 Mission Control v0.3 — Coordination for OpenClaw agent fleets
@@ -1016,6 +1042,11 @@ MISSION:
   mission status                                       Show mission status & progress
   mission current                                      Show current
 
+PLAN:
+  plan [show]                                          Show mission plan
+  plan set <file>                                      Set plan from file
+  plan path                                            Show plan file path
+
 MIGRATION:
   migrate                                              Migrate DB schema
 
@@ -1043,7 +1074,7 @@ EOF
 
 # Commands that don't need existing DB
 case "${1:-help}" in
-  init|help|-h|--help|project|workspace|migrate) ;;
+  init|help|-h|--help|project|workspace|migrate|plan) ;;
   *)
     if [[ ! -f "$DB" ]]; then
       echo -e "${Y}No database found at $DB${N}" >&2
@@ -1074,6 +1105,7 @@ case "${1:-help}" in
   project)   shift; cmd_project "$@" ;;
   workspace) shift; cmd_project "$@" ;;  # alias for backward compat
   mission)   shift; cmd_mission "$@" ;;
+  plan)      shift; cmd_plan "$@" ;;
   migrate)   cmd_migrate ;;
   help|-h|--help) cmd_help ;;
   *)         echo "Unknown: $1"; cmd_help ;;
