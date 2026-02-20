@@ -969,6 +969,59 @@ cmd_whoami() {
   echo -e "Role:      ${role:-unregistered}"
 }
 
+cmd_cron_guard() {
+  local subcmd="${1:?Usage: mc cron-guard <disable|enable|check> <agent-name>}"
+  local agent_name="${2:?Usage: mc cron-guard $subcmd <agent-name>}"
+  shift 2
+
+  local oc_profile_flag=""
+  [ -n "${OPENCLAW_PROFILE:-}" ] && oc_profile_flag="--profile $OPENCLAW_PROFILE"
+
+  # Find cron job ID by agent name
+  local cron_json cron_id
+  cron_json=$(openclaw $oc_profile_flag cron list --json 2>/dev/null || echo '{"jobs":[]}')
+  cron_id=$(echo "$cron_json" | python3 -c "
+import sys, json
+data = json.load(sys.stdin)
+for job in data.get('jobs', []):
+    if job.get('name') == '$agent_name':
+        print(job['id'])
+        break" 2>/dev/null || true)
+
+  if [ -z "$cron_id" ]; then
+    echo -e "${Y}[CRON_GUARD] No cron job found for '$agent_name'${N}" >&2
+    return 0  # Best-effort: don't fail
+  fi
+
+  case "$subcmd" in
+    disable)
+      openclaw $oc_profile_flag cron disable "$cron_id" 2>/dev/null && \
+        echo -e "${G}[CRON_GUARD] $agent_name: cron disabled${N}" || \
+        echo -e "${Y}[CRON_GUARD] $agent_name: disable failed (best-effort)${N}" >&2
+      ;;
+    enable)
+      openclaw $oc_profile_flag cron enable "$cron_id" 2>/dev/null && \
+        echo -e "${G}[CRON_GUARD] $agent_name: cron enabled${N}" || \
+        echo -e "${Y}[CRON_GUARD] $agent_name: enable failed (best-effort)${N}" >&2
+      ;;
+    check)
+      local status
+      status=$(echo "$cron_json" | python3 -c "
+import sys, json
+data = json.load(sys.stdin)
+for job in data.get('jobs', []):
+    if job.get('name') == '$agent_name':
+        print('enabled' if job.get('enabled', True) else 'disabled')
+        break" 2>/dev/null || echo "unknown")
+      echo -e "[CRON_GUARD] $agent_name: $status"
+      ;;
+    *)
+      echo "Usage: mc cron-guard <disable|enable|check> <agent-name>"
+      return 1
+      ;;
+  esac
+}
+
 cmd_plan() {
   local subcmd="${1:-show}"
   shift 2>/dev/null || true
@@ -1047,6 +1100,11 @@ PLAN:
   plan set <file>                                      Set plan from file
   plan path                                            Show plan file path
 
+CRON GUARD:
+  cron-guard disable <agent-name>                      Disable agent cron job
+  cron-guard enable <agent-name>                       Enable agent cron job
+  cron-guard check <agent-name>                        Check cron job status
+
 MIGRATION:
   migrate                                              Migrate DB schema
 
@@ -1074,7 +1132,7 @@ EOF
 
 # Commands that don't need existing DB
 case "${1:-help}" in
-  init|help|-h|--help|project|workspace|migrate|plan) ;;
+  init|help|-h|--help|project|workspace|migrate|plan|cron-guard) ;;
   *)
     if [[ ! -f "$DB" ]]; then
       echo -e "${Y}No database found at $DB${N}" >&2
@@ -1105,7 +1163,8 @@ case "${1:-help}" in
   project)   shift; cmd_project "$@" ;;
   workspace) shift; cmd_project "$@" ;;  # alias for backward compat
   mission)   shift; cmd_mission "$@" ;;
-  plan)      shift; cmd_plan "$@" ;;
+  plan)       shift; cmd_plan "$@" ;;
+  cron-guard) shift; cmd_cron_guard "$@" ;;
   migrate)   cmd_migrate ;;
   help|-h|--help) cmd_help ;;
   *)         echo "Unknown: $1"; cmd_help ;;

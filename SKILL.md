@@ -55,7 +55,10 @@ Every agent should follow this pattern:
 | Separate workstream | `mc mission create "feature-x" -d "Feature X work"` |
 | Work in specific context | `mc -p project -m feature-x list` |
 | Build a team | `setup_mission project mission "goal" --roles researcher,coder,reviewer` |
-| Long-running mission | `setup_mission project mission "goal" --roles coder --monitor` (adds architect monitoring) |
+| Build a team with plan | `setup_mission project mission "goal" --roles coder --plan plan.md` |
+| Long-running mission | `setup_mission project mission "goal" --roles coder --plan plan.md` (brain manages phases) |
+| View mission plan | `mc -p project plan show` |
+| Set/replace plan | `mc -p project plan set <file>` |
 | Pause mission | `mc -p project -m mission mission pause` (pauses + disables crons) |
 | Resume mission | `mc -p project -m mission mission resume` (resumes + enables crons) |
 | Mid-mission instruction | `mc -p project -m mission mission instruct "change direction"` |
@@ -129,10 +132,29 @@ mc mission status                               Show mission status & progress
 mc mission current
 ```
 
+### Plan
+```
+mc plan [show]                                  Show mission plan (plan.md)
+mc plan set <file>                              Set/replace plan from file
+mc plan path                                    Show plan file path
+```
+
 ### Migration
 ```
 mc migrate    # Migrate legacy DB to default project
 ```
+
+## Plan Workflow
+
+For phased missions, create a `plan.md` and pass it to `setup_mission --plan`:
+
+1. **mc-architect creates plan.md** with phases, tasks, roles, and success criteria
+2. **`setup_mission --plan plan.md`** copies plan into the project directory
+3. **Brain reads plan.md** on first run and creates Phase 1 tasks (`Auto: true`)
+4. **Phase complete** → brain proposes next phase → mission pauses (checkpoint)
+5. **Human reviews** with `mc plan show` → `mc mission resume` → brain creates next phase tasks
+
+Plan format: see `examples/mc-docs-plan.md` for reference.
 
 ## Environment Variables
 

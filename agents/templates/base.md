@@ -21,10 +21,10 @@ Every time you are invoked, follow this workflow:
 ### 0. Cron Guard (Prevent Duplicate Runs)
 Immediately disable your own cron to prevent the next scheduled trigger from interrupting this session.
 ```bash
-cron_id=$(openclaw cron list --json | python3 -c "import sys,json; [print(j['id']) for j in json.load(sys.stdin).get('jobs',[]) if j.get('name')=='{agent_id}']")
-openclaw cron disable "$cron_id"
-echo "[CRON_GUARD] {agent_id}: cron disabled at $(date '+%Y-%m-%d %H:%M:%S') — session started"
+mc cron-guard disable {agent_id}
 ```
+
+**If `mc cron-guard` fails**, skip and continue with the workflow. Cron Guard is a best-effort optimization — its failure must NOT block your work.
 
 ### 1. Check In
 ```bash
@@ -33,8 +33,7 @@ mc -p {project} -m {mission} checkin
 
 **If the output contains `MISSION_PAUSED`, `MISSION_COMPLETED`, or `MISSION_ARCHIVED`**, re-enable cron and stop:
 ```bash
-echo "[CRON_GUARD] {agent_id}: mission not active, re-enabling cron"
-openclaw cron enable "$cron_id"
+mc cron-guard enable {agent_id}
 ```
 
 ### 2. Check Messages
@@ -43,10 +42,22 @@ mc -p {project} -m {mission} inbox --unread
 ```
 Read any messages from teammates. Respond if needed.
 
-### 3. Find Work
+### 3. Resume or Find Work
+
+First, check for your own in-progress tasks (from a previous crashed session):
+```bash
+mc -p {project} -m {mission} list --mine --status in_progress
+```
+
+If you have an in_progress task:
+- Resume it — check what was already done, continue from where it left off.
+- When done: `mc -p {project} -m {mission} done <id> -m "Resumed and completed: ..."`
+
+If no in_progress tasks, check for pending tasks:
 ```bash
 mc -p {project} -m {mission} list --mine --status pending
 ```
+
 If no assigned tasks, check for unclaimed work:
 ```bash
 mc -p {project} -m {mission} list --status pending
@@ -80,8 +91,7 @@ If **no tasks remain**:
 ### 8. Re-enable Cron
 After completing a task cycle (tasks remain or more work expected):
 ```bash
-echo "[CRON_GUARD] {agent_id}: work cycle complete, re-enabling cron at $(date '+%Y-%m-%d %H:%M:%S')"
-openclaw cron enable "$cron_id"
+mc cron-guard enable {agent_id}
 ```
 
 ## Communication

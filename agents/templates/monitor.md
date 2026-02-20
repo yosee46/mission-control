@@ -19,10 +19,10 @@ Every time you are invoked, follow this workflow:
 
 ### 0. Cron Guard (Prevent Duplicate Runs)
 ```bash
-cron_id=$(openclaw cron list --json | python3 -c "import sys,json; [print(j['id']) for j in json.load(sys.stdin).get('jobs',[]) if j.get('name')=='{agent_id}']")
-openclaw cron disable "$cron_id"
-echo "[CRON_GUARD] {agent_id}: cron disabled at $(date '+%Y-%m-%d %H:%M:%S') — session started"
+mc cron-guard disable {agent_id}
 ```
+
+**If `mc cron-guard` fails**, skip and continue with the workflow. Cron Guard is a best-effort optimization — its failure must NOT block your monitoring work.
 
 ### 1. Check In
 ```bash
@@ -31,8 +31,7 @@ mc -p {project} -m {mission} checkin
 
 **If the output contains `MISSION_PAUSED`, `MISSION_COMPLETED`, or `MISSION_ARCHIVED`**, re-enable cron and stop:
 ```bash
-echo "[CRON_GUARD] {agent_id}: mission not active, re-enabling cron"
-openclaw cron enable "$cron_id"
+mc cron-guard enable {agent_id}
 ```
 
 ### 2. Review Board
@@ -75,17 +74,15 @@ These agents likely crashed with their cron left disabled.
 For each stale agent:
 1. Re-enable their cron:
    ```bash
-   cron_id_agent=$(openclaw cron list --json | python3 -c "import sys,json; [print(j['id']) for j in json.load(sys.stdin).get('jobs',[]) if j.get('name')=='<agent-id>']")
-   openclaw cron enable "$cron_id_agent"
+   mc cron-guard enable <agent-id>
    ```
-2. Log: `mc -p {project} -m {mission} msg {agent_id} "[CRON_RECOVERY] Re-enabled cron for <agent> — stale since <last_seen>" --type status`
+2. Report to brain: `mc -p {project} -m {mission} msg {project}-{mission}-brain "[CRON_RECOVERY] Re-enabled cron for <agent> — stale since <last_seen>" --type status`
 
 {monitor_policy}
 
 ### 6. Re-enable Cron
 ```bash
-echo "[CRON_GUARD] {agent_id}: monitoring cycle complete, re-enabling cron at $(date '+%Y-%m-%d %H:%M:%S')"
-openclaw cron enable "$cron_id"
+mc cron-guard enable {agent_id}
 ```
 
 ## Communication

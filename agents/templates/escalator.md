@@ -38,16 +38,19 @@ Every time you are invoked:
 
 ### 0. Cron Guard (Prevent Duplicate Runs)
 ```bash
-cron_id=$(openclaw cron list --json | python3 -c "import sys,json; [print(j['id']) for j in json.load(sys.stdin).get('jobs',[]) if j.get('name')=='{agent_id}']")
-openclaw cron disable "$cron_id"
-echo "[CRON_GUARD] {agent_id}: cron disabled at $(date '+%Y-%m-%d %H:%M:%S') — session started"
+mc cron-guard disable {agent_id}
 ```
+
+**If `mc cron-guard` fails**, skip and continue with the workflow. Cron Guard is a best-effort optimization — its failure must NOT block your work.
 
 ### 1. Check In
 ```bash
 mc -p {project} -m {mission} checkin
 ```
-If MISSION_PAUSED, MISSION_COMPLETED, or MISSION_ARCHIVED → re-enable cron (`openclaw cron enable "$cron_id"`) and stop.
+If MISSION_PAUSED, MISSION_COMPLETED, or MISSION_ARCHIVED → re-enable cron and stop:
+```bash
+mc cron-guard enable {agent_id}
+```
 
 ### 2. Check for Human Responses
 ```bash
@@ -80,8 +83,7 @@ Cron is already disabled from Step 0. The monitor will re-enable it when a new e
 ### 5. Re-enable Cron
 After processing tasks (more work expected):
 ```bash
-echo "[CRON_GUARD] {agent_id}: work cycle complete, re-enabling cron at $(date '+%Y-%m-%d %H:%M:%S')"
-openclaw cron enable "$cron_id"
+mc cron-guard enable {agent_id}
 ```
 
 ## Communication

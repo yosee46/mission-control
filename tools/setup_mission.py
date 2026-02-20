@@ -59,6 +59,41 @@ def run(cmd: str, check: bool = True, capture: bool = False) -> subprocess.Compl
     return result
 
 
+def agent_exists(agent_id: str, oc_profile_flag: str) -> bool:
+    """Check if an openclaw agent already exists."""
+    result = run(
+        f"openclaw {oc_profile_flag} agents list --json",
+        check=False, capture=True,
+    )
+    if result.returncode != 0:
+        return False
+    try:
+        data = json.loads(result.stdout)
+        agents = data.get("agents", data) if isinstance(data, dict) else data
+        return any(
+            (a.get("name") or a.get("id") or "") == agent_id
+            for a in (agents if isinstance(agents, list) else [])
+        )
+    except (json.JSONDecodeError, AttributeError):
+        return False
+
+
+def cron_exists(agent_id: str, oc_profile_flag: str) -> bool:
+    """Check if a cron job with the given name already exists."""
+    result = run(
+        f"openclaw {oc_profile_flag} cron list --json",
+        check=False, capture=True,
+    )
+    if result.returncode != 0:
+        return False
+    try:
+        data = json.loads(result.stdout)
+        jobs = data.get("jobs", [])
+        return any(j.get("name") == agent_id for j in jobs)
+    except (json.JSONDecodeError, AttributeError):
+        return False
+
+
 def safe_render(template: str, **kwargs: str) -> str:
     """Render template using str.replace() — safe for content containing braces."""
     result = template
@@ -103,13 +138,13 @@ You are **{agent_id}**, a {role_description} working on project **{project}**.
 {role_specialization}
 
 ## Workflow
-0. Cron Guard: `cron_id=$(openclaw cron list --json | python3 -c "import sys,json; [print(j['id']) for j in json.load(sys.stdin).get('jobs',[]) if j.get('name')=='{agent_id}']") && openclaw cron disable "$cron_id" && echo "[CRON_GUARD] {agent_id}: cron disabled — session started"`
-1. `mc -p {project} -m {mission} checkin` — if PAUSED/COMPLETED/ARCHIVED, re-enable cron and stop
+0. Cron Guard: `mc cron-guard disable {agent_id}`
+1. `mc -p {project} -m {mission} checkin` — if PAUSED/COMPLETED/ARCHIVED, `mc cron-guard enable {agent_id}` and stop
 2. `mc -p {project} -m {mission} list --mine --status pending`
 3. Claim highest-priority task: `mc -p {project} -m {mission} claim <id>`
 4. Start work: `mc -p {project} -m {mission} start <id>`
 5. Complete: `mc -p {project} -m {mission} done <id> -m "what I did"`
-6. Re-enable cron: `openclaw cron enable "$cron_id" && echo "[CRON_GUARD] {agent_id}: cron re-enabled"`
+6. Re-enable cron: `mc cron-guard enable {agent_id}`
 """
 
 
@@ -159,16 +194,10 @@ def generate_agents_md(
     )
 
 
-def generate_cron_message(agent_id: str, project: str, mission: str, profile_env: str = "") -> str:
+def generate_cron_message(agent_id: str, project: str = "", mission: str = "", profile_env: str = "") -> str:
     """Generate the cron invocation message for an agent."""
-    mc = f"{profile_env}mc" if profile_env else "mc"
     return (
-        f"You are {agent_id}. Read your AGENTS.md, then execute your workflow: "
-        f"{mc} -p {project} -m {mission} checkin — "
-        f"if output contains MISSION_PAUSED, MISSION_COMPLETED, or MISSION_ARCHIVED then stop. "
-        f"Otherwise: {mc} -p {project} -m {mission} list --mine --status pending && "
-        f"claim and work on your highest-priority task. "
-        f"If no tasks, check {mc} -p {project} -m {mission} list --status pending for unclaimed work. "
+        f"You are {agent_id}. Read your AGENTS.md and execute your workflow. "
         f"日本語で応答すること。"
     )
 
@@ -194,13 +223,13 @@ Your role is to observe and report anomalies to the brain agent. You do NOT make
 - **Role**: monitor
 
 ## Monitoring Workflow
-0. Cron Guard: `cron_id=$(openclaw cron list --json | python3 -c "import sys,json; [print(j['id']) for j in json.load(sys.stdin).get('jobs',[]) if j.get('name')=='{agent_id}']") && openclaw cron disable "$cron_id" && echo "[CRON_GUARD] {agent_id}: cron disabled — session started"`
-1. `mc -p {project} -m {mission} checkin` — if PAUSED/COMPLETED/ARCHIVED, re-enable cron and stop
+0. Cron Guard: `mc cron-guard disable {agent_id}`
+1. `mc -p {project} -m {mission} checkin` — if PAUSED/COMPLETED/ARCHIVED, `mc cron-guard enable {agent_id}` and stop
 2. `mc -p {project} -m {mission} board` — check task progress
 3. `mc -p {project} fleet` — check agent statuses for stale detection
 4. `mc -p {project} -m {mission} inbox --unread` — check messages from brain
-5. Observe and report: blocked tasks → msg brain; stale tasks → msg brain; all done → msg brain; stale agent crons → re-enable directly
-6. Re-enable cron: `openclaw cron enable "$cron_id" && echo "[CRON_GUARD] {agent_id}: cron re-enabled"`
+5. Observe and report: blocked tasks → msg brain; stale tasks → msg brain; all done → msg brain; stale agent crons → `mc cron-guard enable <agent-id>`
+6. Re-enable cron: `mc cron-guard enable {agent_id}`
 
 {monitor_policy}
 """
@@ -227,14 +256,14 @@ You receive observation reports from the monitor agent and make all judgment and
 - **Role**: brain
 
 ## Brain Workflow
-0. Cron Guard: `cron_id=$(openclaw cron list --json | python3 -c "import sys,json; [print(j['id']) for j in json.load(sys.stdin).get('jobs',[]) if j.get('name')=='{agent_id}']") && openclaw cron disable "$cron_id" && echo "[CRON_GUARD] {agent_id}: cron disabled — session started"`
-1. `mc -p {project} -m {mission} checkin` — if PAUSED/COMPLETED/ARCHIVED, re-enable cron and stop
+0. Cron Guard: `mc cron-guard disable {agent_id}`
+1. `mc -p {project} -m {mission} checkin` — if PAUSED/COMPLETED/ARCHIVED, `mc cron-guard enable {agent_id}` and stop
 2. `mc -p {project} -m {mission} mission status` — review state and user instructions
 3. `mc -p {project} -m {mission} board` — check task progress
 4. `mc -p {project} -m {mission} inbox --unread` — check monitor reports and agent questions
 5. Judge and act: all tasks done → checkpoint or follow-up; user instructions → tasks; monitor alerts → reassign; escalation → escalator task; agent questions → answer
-6. Task assignment: `mc -p {project} -m {mission} add "desc" --for <agent>` + re-enable target cron
-7. Re-enable cron: `openclaw cron enable "$cron_id" && echo "[CRON_GUARD] {agent_id}: cron re-enabled"`
+6. Task assignment: `mc -p {project} -m {mission} add "desc" --for <agent>` + `mc cron-guard enable <agent>`
+7. Re-enable cron: `mc cron-guard enable {agent_id}`
 
 {brain_policy}
 """
@@ -268,37 +297,28 @@ You are the **sole channel** between the AI agent team and the human operator.
 {escalation_policy}
 
 ## Workflow
-0. Cron Guard: `cron_id=$(openclaw cron list --json | python3 -c "import sys,json; [print(j['id']) for j in json.load(sys.stdin).get('jobs',[]) if j.get('name')=='{agent_id}']") && openclaw cron disable "$cron_id" && echo "[CRON_GUARD] {agent_id}: cron disabled — session started"`
-1. `mc -p {project} -m {mission} checkin` — if PAUSED/COMPLETED/ARCHIVED, re-enable cron and stop
+0. Cron Guard: `mc cron-guard disable {agent_id}`
+1. `mc -p {project} -m {mission} checkin` — if PAUSED/COMPLETED/ARCHIVED, `mc cron-guard enable {agent_id}` and stop
 2. `mc -p {project} -m {mission} mission status` — relay human instructions to requesting agents
 3. `mc -p {project} -m {mission} list --mine --status pending` — process escalation tasks
 4. No tasks → cron stays disabled (brain will re-enable when needed)
-5. After processing tasks: `openclaw cron enable "$cron_id" && echo "[CRON_GUARD] {agent_id}: cron re-enabled"`
+5. After processing tasks: `mc cron-guard enable {agent_id}`
 """
 
 
-def generate_monitor_cron_message(agent_id: str, project: str, mission: str, profile_env: str = "") -> str:
+def generate_monitor_cron_message(agent_id: str, project: str = "", mission: str = "", profile_env: str = "") -> str:
     """Generate the cron message for the monitor agent."""
-    return (
-        f"You are {agent_id}. Execute your monitoring workflow as described in your AGENTS.md. "
-        f"日本語で応答すること。"
-    )
+    return generate_cron_message(agent_id)
 
 
-def generate_brain_cron_message(agent_id: str, project: str, mission: str, profile_env: str = "") -> str:
+def generate_brain_cron_message(agent_id: str, project: str = "", mission: str = "", profile_env: str = "") -> str:
     """Generate the cron message for the brain agent."""
-    return (
-        f"You are {agent_id}. Execute your brain workflow as described in your AGENTS.md. "
-        f"日本語で応答すること。"
-    )
+    return generate_cron_message(agent_id)
 
 
-def generate_escalator_cron_message(agent_id: str, project: str, mission: str, profile_env: str = "") -> str:
+def generate_escalator_cron_message(agent_id: str, project: str = "", mission: str = "", profile_env: str = "") -> str:
     """Generate the cron message for the escalator agent."""
-    return (
-        f"You are {agent_id}. Execute your escalation workflow as described in your AGENTS.md. "
-        f"日本語で応答すること。"
-    )
+    return generate_cron_message(agent_id)
 
 
 def register_agent(
@@ -328,16 +348,19 @@ def register_agent(
         agents_md_path.write_text(agents_md)
 
     # c. Register openclaw agent
-    print(f"  Registering openclaw agent: {agent_id}")
-    model_flag = f"--model {model} " if model else ""
-    if not dry_run:
-        run(
-            f"openclaw {oc_profile_flag} agents add {agent_id} "
-            f"--workspace {ws_dir} "
-            f"{model_flag}"
-            f"--non-interactive".strip(),
-            check=False,
-        )
+    if not dry_run and agent_exists(agent_id, oc_profile_flag):
+        print(f"  openclaw agent already exists, skipping: {agent_id}")
+    else:
+        print(f"  Registering openclaw agent: {agent_id}")
+        model_flag = f"--model {model} " if model else ""
+        if not dry_run:
+            run(
+                f"openclaw {oc_profile_flag} agents add {agent_id} "
+                f"--workspace {ws_dir} "
+                f"{model_flag}"
+                f"--non-interactive".strip(),
+                check=False,
+            )
 
     # d. Register in MC fleet
     print(f"  Registering in MC fleet")
@@ -348,19 +371,22 @@ def register_agent(
         )
 
     # e. Add cron job
-    print(f"  Adding cron job ({cron_schedule})")
-    if not dry_run:
-        escaped_msg = cron_msg.replace('"', '\\"')
-        run(
-            f'openclaw {oc_profile_flag} cron add '
-            f'--agent {agent_id} '
-            f'--name {agent_id} '
-            f'--cron "{cron_schedule}" '
-            f'--session isolated '
-            f'--announce --channel slack --to {slack_channel} '
-            f'--message "{escaped_msg}"'.strip(),
-            check=False,
-        )
+    if not dry_run and cron_exists(agent_id, oc_profile_flag):
+        print(f"  Cron job already exists, skipping: {agent_id}")
+    else:
+        print(f"  Adding cron job ({cron_schedule})")
+        if not dry_run:
+            escaped_msg = cron_msg.replace('"', '\\"')
+            run(
+                f'openclaw {oc_profile_flag} cron add '
+                f'--agent {agent_id} '
+                f'--name {agent_id} '
+                f'--cron "{cron_schedule}" '
+                f'--session isolated '
+                f'--announce --channel slack --to {slack_channel} '
+                f'--message "{escaped_msg}"'.strip(),
+                check=False,
+            )
 
     print(f"  OK — {agent_id} ready")
 
@@ -394,7 +420,7 @@ def main():
     )
     parser.add_argument(
         "--supervisor-cron", default="0 */6 * * *",
-        help="Cron schedule for monitor and brain agents (default: every 6 hours)"
+        help="Cron schedule for supervisor agents: monitor, brain, and escalator (default: every 6 hours)"
     )
     parser.add_argument(
         "--slack-channel", required=True,
@@ -640,7 +666,7 @@ def main():
         project=project,
         ws_dir=ws_dir,
         agents_md=escalator_md,
-        cron_schedule=cron_schedule,
+        cron_schedule=supervisor_schedule,
         cron_msg=escalator_msg,
         slack_channel=args.slack_channel,
         oc_profile_flag=oc_profile_flag,
@@ -669,7 +695,7 @@ def main():
         print(f"    - {a}")
     print(f"  Monitor:    {project}-{mission}-monitor ({supervisor_schedule})")
     print(f"  Brain:      {project}-{mission}-brain ({supervisor_schedule})")
-    print(f"  Escalator:  {project}-{mission}-escalator ({cron_schedule})")
+    print(f"  Escalator:  {project}-{mission}-escalator ({supervisor_schedule})")
     print(f"")
     if args.plan:
         print(f"Brain will read plan.md and create Phase 1 tasks automatically.")
@@ -690,6 +716,23 @@ def main():
     print(f"")
     print(f"Cleanup (when mission is done):")
     print(f"  {mc_prefix} -p {project} -m {mission} mission complete")
+
+    # ─── Final Verification ───
+    if not dry_run:
+        print(f"\n[Verify] Checking registration results...")
+        missing_agents = []
+        missing_crons = []
+        for a in agents_created:
+            if not agent_exists(a, oc_profile_flag):
+                missing_agents.append(a)
+            if not cron_exists(a, oc_profile_flag):
+                missing_crons.append(a)
+        if missing_agents:
+            print(f"  WARN: agents not found after registration: {', '.join(missing_agents)}")
+        if missing_crons:
+            print(f"  WARN: cron jobs not found after registration: {', '.join(missing_crons)}")
+        if not missing_agents and not missing_crons:
+            print(f"  OK — all {len(agents_created)} agents and cron jobs verified")
 
 
 if __name__ == "__main__":

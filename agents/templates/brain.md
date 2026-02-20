@@ -19,10 +19,10 @@ Every time you are invoked, follow this workflow:
 
 ### 0. Cron Guard (Prevent Duplicate Runs)
 ```bash
-cron_id=$(openclaw cron list --json | python3 -c "import sys,json; [print(j['id']) for j in json.load(sys.stdin).get('jobs',[]) if j.get('name')=='{agent_id}']")
-openclaw cron disable "$cron_id"
-echo "[CRON_GUARD] {agent_id}: cron disabled at $(date '+%Y-%m-%d %H:%M:%S') — session started"
+mc cron-guard disable {agent_id}
 ```
+
+**If `mc cron-guard` fails**, skip and continue with the workflow. Cron Guard is a best-effort optimization — its failure must NOT block your mission work.
 
 ### 1. Check In
 ```bash
@@ -31,8 +31,7 @@ mc -p {project} -m {mission} checkin
 
 **If the output contains `MISSION_PAUSED`, `MISSION_COMPLETED`, or `MISSION_ARCHIVED`**, re-enable cron and stop:
 ```bash
-echo "[CRON_GUARD] {agent_id}: mission not active, re-enabling cron"
-openclaw cron enable "$cron_id"
+mc cron-guard enable {agent_id}
 ```
 
 ### 2. Check Mission Status
@@ -48,7 +47,11 @@ Check if a mission plan exists:
 mc -p {project} plan show
 ```
 
-**If no plan exists**, skip to Step 3 (operate without phased task generation).
+**If no plan exists**, skip to Step 3 (operate without phased task generation). In this mode:
+- You have no phases or Success Criteria to evaluate.
+- Check if the mission goal has been achieved by reviewing `done` tasks.
+- If all tasks are `done` and the goal appears achieved → create a completion checkpoint (see Step 5a).
+- If more work is needed → create follow-up tasks directly.
 
 **If a plan exists**, follow this procedure:
 
@@ -59,12 +62,17 @@ Update plan.md with current board state:
 - Update Timeline with actuals if different from planned
 - Mark Success Criteria with ✅/❌
 - Add `### Brain Notes` for completed phases
-- Write updated plan back via `cat > "$(mc -p {project} plan path)"`
+- Write updated plan back using heredoc (protects against shell special characters):
+  ```bash
+  cat > "$(mc -p {project} plan path)" << 'PLAN_EOF'
+  <full updated plan content here>
+  PLAN_EOF
+  ```
 - **Do NOT** change: Goal, phase order, human-written task descriptions.
 
 #### B. Determine Current Phase
-1. If NO tasks on the board → Phase 1 is current (first run).
-2. If tasks exist → match against plan phases.
+1. Run `mc -p {project} -m {mission} list --all`. If **zero tasks** are returned → Phase 1 is current (first run).
+2. If tasks exist → match against plan phases by comparing task subjects with plan tasks.
 3. A phase is **complete** when ALL its tasks are `done` AND Success Criteria are met.
 
 #### C. Phase Advancement (Two-Step with Human Review)
@@ -76,10 +84,13 @@ Update plan.md with current board state:
 **Step C-1: PROPOSE** (if next phase does NOT have `[PROPOSED]` in its header):
 - Add `[PROPOSED]` to the next phase header in plan.md
 - Annotate each task with expanded agent assignment: ` → assign: {project}-{mission}-<role>`
-- Write plan.md back
+- Write plan.md back (use heredoc: `cat > "$(mc -p {project} plan path)" << 'PLAN_EOF' ... PLAN_EOF`)
 - Create and complete a checkpoint task:
   ```bash
   mc -p {project} -m {mission} add "Phase N plan review — check: mc plan show, adjust if needed, then: mc mission resume" --type checkpoint --for {agent_id}
+  ```
+  Then read the task ID from the output (e.g., `Created task #42`), and use it:
+  ```bash
   mc -p {project} -m {mission} claim <id>
   mc -p {project} -m {mission} start <id>
   mc -p {project} -m {mission} done <id> -m "Awaiting human review of Phase N"
@@ -94,7 +105,7 @@ Update plan.md with current board state:
   - If task has `--at "datetime"`: add the `--at` flag.
   - If task has `--type checkpoint`: add the `--type checkpoint` flag.
 - Remove `[PROPOSED]` from phase header, replace with 🔄
-- Write plan.md back
+- Write plan.md back (use heredoc: `cat > "$(mc -p {project} plan path)" << 'PLAN_EOF' ... PLAN_EOF`)
 - Re-enable assigned agents' crons (see section 6)
 
 **Skip review exception**: If the phase has `Auto: true`, skip PROPOSE step and go directly to CREATE.
@@ -124,11 +135,15 @@ If ALL tasks are `done`:
   - Criteria met + final phase → create mission completion checkpoint (below).
   - Criteria NOT met → create remediation tasks within current phase.
 - **If no plan exists**: Review mission goal — is it achieved?
-- If achieved → create checkpoint:
+- If achieved → create and complete a checkpoint:
   ```bash
   mc -p {project} -m {mission} add "Mission goal achieved — human review" --type checkpoint --for {agent_id}
-  mc -p {project} -m {mission} list --mine --status pending
-  # claim and start the checkpoint task, then done it
+  ```
+  Then read the task ID from the output (e.g., `Created task #42`), and use it:
+  ```bash
+  mc -p {project} -m {mission} claim <id>
+  mc -p {project} -m {mission} start <id>
+  mc -p {project} -m {mission} done <id> -m "Mission goal achieved, awaiting human review"
   ```
 - If more work needed → create follow-up tasks and re-enable assigned agents' crons (see section 6)
 
@@ -159,16 +174,22 @@ If agents have sent questions via messages:
 
 ### 6. Task Assignment with Cron Reactivation
 
-When creating or reassigning a task, **always re-enable the target agent's cron**:
+When creating or reassigning a task, **always re-enable the target agent's cron** in a single command:
 ```bash
 mc -p {project} -m {mission} add "Task description" --for <agent-id>
-cron_id_target=$(openclaw cron list --json | python3 -c "import sys,json; [print(j['id']) for j in json.load(sys.stdin).get('jobs',[]) if j.get('name')=='<agent-id>']")
-openclaw cron enable "$cron_id_target"
+```
+Then re-enable the target agent's cron:
+```bash
+mc cron-guard enable <agent-id>
 ```
 
 ## Creating Tasks
 ```bash
 mc -p {project} -m {mission} add "Task description" -p <priority> --for <agent-id>
+```
+**Note**: If the task subject contains shell special characters (quotes, `$`, `!`, etc.), escape them or use single quotes:
+```bash
+mc -p {project} -m {mission} add 'Task with "quotes" and $pecial chars' -p 1 --for <agent-id>
 ```
 
 ## Communication
@@ -178,9 +199,10 @@ mc -p {project} -m {mission} add "Task description" -p <priority> --for <agent-i
 
 ### 7. Re-enable Cron
 ```bash
-echo "[CRON_GUARD] {agent_id}: brain cycle complete, re-enabling cron at $(date '+%Y-%m-%d %H:%M:%S')"
-openclaw cron enable "$cron_id"
+mc cron-guard enable {agent_id}
 ```
+
+**If `mc cron-guard` fails**, skip this step. The monitor agent's Stale Agent Cron Recovery (Step 5d) will detect the disabled cron and re-enable it.
 
 ## Safety Rules
 - **Stay in scope**: Only modify files under `{config_dir}/projects/{project}/`
