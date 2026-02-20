@@ -53,7 +53,14 @@ If you have an in_progress task:
 - Resume it — check what was already done, continue from where it left off.
 - When done: `mc -p {project} -m {mission} done <id> -m "Resumed and completed: ..."`
 
-If no in_progress tasks, check for pending tasks:
+If no in_progress tasks, check for claimed tasks (assigned via `--for` or claimed in a previous crashed session):
+```bash
+mc -p {project} -m {mission} list --mine --status claimed
+```
+
+If you have a claimed task, go to Step 4 (skip `claim`, just `start` it).
+
+If no claimed tasks, check for pending tasks:
 ```bash
 mc -p {project} -m {mission} list --mine --status pending
 ```
@@ -79,11 +86,16 @@ mc -p {project} -m {mission} done <id> -m "Brief description of what was accompl
 ```
 
 ### 7. Next Task or Stop
-Check for more pending tasks (`mc -p {project} -m {mission} list --mine --status pending` and `mc -p {project} -m {mission} list --status pending`).
+Check for more tasks:
+```bash
+mc -p {project} -m {mission} list --mine --status claimed
+mc -p {project} -m {mission} list --mine --status pending
+mc -p {project} -m {mission} list --status pending
+```
 
 If there are more tasks, go to Step 4.
 
-If **no tasks remain**:
+If **no tasks remain** (no claimed, pending, or in_progress tasks):
 1. Notify monitor: `mc -p {project} -m {mission} msg {project}-{mission}-monitor "All my tasks are complete. Keeping cron disabled." --type status`
 2. `echo "[CRON_GUARD] {agent_id}: no tasks remain, cron stays disabled at $(date '+%Y-%m-%d %H:%M:%S')"`
 3. Stop. Cron is already disabled from Step 0. The monitor will re-enable it when new tasks are assigned.
