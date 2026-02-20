@@ -702,7 +702,7 @@ def main():
         print(f"  View plan: {mc_prefix} -p {project} plan show")
         print(f"")
         print(f"Immediate start (optional):")
-        oc_cmd = f"openclaw {oc_profile_flag} agents run {brain_id}".replace("  ", " ")
+        oc_cmd = f'openclaw {oc_profile_flag} agent --agent {brain_id} -m "Read your AGENTS.md and execute your workflow."'.replace("  ", " ")
         print(f"  {oc_cmd}")
     else:
         print(f"Next: Use mc to add tasks for the team:")

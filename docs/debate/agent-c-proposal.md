@@ -336,7 +336,7 @@ mc -p <project> -m <mission> mission instruct "認証方式をOAuth2に変更し
 setup_mission.py に `--run-brain` フラグのヘルパーを追加し、内部で以下を実行:
 ```bash
 mc -p <project> -m <mission> mission instruct "<text>"
-openclaw --profile <profile> agents run <project>-<mission>-brain
+openclaw --profile <profile> agent --agent <project>-<mission>-brain -m "Read your AGENTS.md and execute your workflow."
 ```
 
 **5b. ダッシュボードコマンドの追加**:
@@ -469,7 +469,7 @@ After creating all tasks for a phase, verify the creation:
 | **High** | 提案 5c: brain の指示解釈確認 | 人間の指示が正しく解釈されたことの確認は、ミッションの方向性を守る上で不可欠。 |
 | **Medium** | 提案 1: Decision Log | デバッグと事後分析に極めて有用だが、ミッションの成功自体には直接寄与しない。ファイルへの書き込み処理が LLM に正しく実行されるかの懸念もある。 |
 | **Medium** | 提案 4: Plan Drift 検知 | monitor の拡張として自然だが、フロントマター（提案2）がないと精度が低い。提案2の導入後に実装するのが効果的。 |
-| **Medium** | 提案 5a: 即時 brain 起動 | 緊急介入に有用だが、`openclaw agents run` コマンドで代替可能（仕様書 Step 5 に既に記載）。UX の改善レベル。 |
+| **Medium** | 提案 5a: 即時 brain 起動 | 緊急介入に有用だが、`openclaw agent --agent <id> -m "..."` コマンドで代替可能（仕様書 Step 5 に既に記載）。UX の改善レベル。 |
 | **Low** | 提案 3: Phase 状態マシン | 理想的だが、phase-state.json と plan.md の二重管理リスクが高い。YAML フロントマター内で Phase 状態を管理する方がシンプルかもしれない。`mc phase` コマンドの実装コストも考慮が必要。 |
 | **Low** | 提案 5b: Dashboard コマンド | 可視化として価値が高いが、既存の `mc board` + `mc fleet` + `mc plan show` で代替可能。実装コストに対する追加価値が限定的。 |
 

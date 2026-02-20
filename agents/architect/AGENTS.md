@@ -294,7 +294,7 @@ The brain agent will:
 
 If you need to kick-start the brain immediately (use the profile from Step 0):
 ```bash
-openclaw --profile <profile> agents run <project>-<mission>-brain
+openclaw --profile <profile> agent --agent <project>-<mission>-brain -m "Read your AGENTS.md and execute your workflow."
 ```
 
 ### 6. Report to User

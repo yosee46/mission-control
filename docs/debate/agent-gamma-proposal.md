@@ -289,7 +289,7 @@ steps:
     name: "brain 委任"
     action: shell
     condition: "setup_success"
-    command: 'openclaw --profile {profile} agents run {project}-{mission}-brain'
+    command: 'openclaw --profile {profile} agent --agent {project}-{mission}-brain -m "Read your AGENTS.md and execute your workflow."'
     on_failure: skip  # brain の即時起動は任意
 
   - id: report_completion

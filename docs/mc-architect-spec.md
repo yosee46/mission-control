@@ -234,7 +234,7 @@ brain エージェントが:
 
 必要に応じて brain を即時起動:
 ```bash
-openclaw --profile <profile> agents run <project>-<mission>-brain
+openclaw --profile <profile> agent --agent <project>-<mission>-brain -m "Read your AGENTS.md and execute your workflow."
 ```
 
 ### Step 10: ユーザーへの完了報告
@@ -290,7 +290,7 @@ Step 10  Slack に完了報告
 ```
 setup_mission 完了（全 agent + cron 登録済み）
    ↓
-brain 初回起動（cron or 手動 agents run）
+brain 初回起動（cron or 手動 openclaw agent --agent <brain-id>）
    ↓
 plan.md 読込 → Phase 1 タスク自動作成（Auto: true）
    ↓
